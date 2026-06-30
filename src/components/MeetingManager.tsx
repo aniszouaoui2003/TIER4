@@ -83,7 +83,7 @@ export default function MeetingManager({
   const [quickSubject, setQuickSubject] = useState('');
   const [quickOwner, setQuickOwner] = useState('');
   const [quickDueDate, setQuickDueDate] = useState('');
-  const [quickWorkshop, setQuickWorkshop] = useState('Atelier Usinage');
+  const [quickWorkshop, setQuickWorkshop] = useState('Site 1');
 
   // Agenda steps mapping
   const agendaSteps = [
@@ -444,17 +444,15 @@ export default function MeetingManager({
                     <form onSubmit={handleSubmitQuickAction} className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-100 dark:border-slate-700 text-xs space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Atelier concerné</label>
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Périmètre concerné</label>
                           <select
                             value={quickWorkshop}
                             onChange={(e) => setQuickWorkshop(e.target.value)}
                             className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded p-1 text-slate-800 dark:text-slate-200"
                           >
-                            <option value="Atelier Injection">Atelier Injection</option>
-                            <option value="Atelier Usinage">Atelier Usinage</option>
-                            <option value="Atelier Assemblage">Atelier Assemblage</option>
-                            <option value="Atelier Expédition">Atelier Expédition</option>
-                            <option value="Usine (Toutes zones)">Usine (Toutes zones)</option>
+                            <option value="Site 1">Site 1</option>
+                            <option value="Site 2">Site 2</option>
+                            <option value="Total Usine">Total Usine</option>
                           </select>
                         </div>
                         <div>
@@ -510,7 +508,7 @@ export default function MeetingManager({
                           <div key={act.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-100 dark:border-slate-800 flex justify-between items-center hover:bg-slate-100/50 transition-colors">
                             <div className="min-w-0 flex-1 pr-3">
                               <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{act.subject}</p>
-                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Pilote : <strong>{act.owner}</strong> • Échéance : {act.dueDate} • Atelier : {act.workshop}</p>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Pilote : <strong>{act.owner}</strong> • Échéance : {act.dueDate} • Périmètre : {act.workshop}</p>
                             </div>
                             <div className="text-right shrink-0">
                               <span className="text-[10px] font-bold font-mono bg-white dark:bg-slate-900 border px-1.5 py-0.5 rounded shadow-xs">
@@ -750,7 +748,7 @@ export default function MeetingManager({
                                     <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 rounded font-bold font-mono uppercase">{act.department}</span>
                                   </div>
                                   <p className="text-[10px] text-slate-300">{act.description}</p>
-                                  <p className="text-[9px] text-slate-400">Responsable proposé : <strong>{act.owner}</strong> • Atelier : {act.workshop}</p>
+                                  <p className="text-[9px] text-slate-400">Responsable proposé : <strong>{act.owner}</strong> • Périmètre : {act.workshop}</p>
                                 </div>
                                 <button
                                   type="button"

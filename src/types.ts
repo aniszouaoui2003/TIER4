@@ -4,16 +4,24 @@
  */
 
 export type UserRole =
+  | 'DGA (Administrateur)'
+  | 'directeur QHSE'
+  | 'DRH'
+  | 'Responsable de production'
+  | 'Directeur Export'
+  | 'Directeur Compta&contrôle de gestion'
+  | 'Directeur technique'
+  | 'DAF'
+  | 'Viewer'
   | 'Admin'
-  | 'DG' // Directeur Général
-  | 'DI' // Directeur Industriel
-  | 'Prod' // Responsable Production
-  | 'Qual' // Responsable Qualité
-  | 'Maint' // Responsable Maintenance
-  | 'RH' // Responsable Ressources Humaines
-  | 'Log' // Responsable Logistique
-  | 'Workshop' // Manager Atelier
-  | 'Viewer'; // Consultation uniquement
+  | 'DG'
+  | 'DI'
+  | 'Prod'
+  | 'Qual'
+  | 'Maint'
+  | 'RH'
+  | 'Log'
+  | 'Workshop';
 
 export interface User {
   id: string;
@@ -46,6 +54,9 @@ export interface KPI {
   totalChecked: boolean;
   site1Value?: number;
   site2Value?: number;
+  site1Owner?: string;
+  site2Owner?: string;
+  officeplastOwner?: string;
 }
 
 export interface ActionAttachment {
@@ -127,3 +138,19 @@ export interface AuditLog {
   module: string;
   details: string;
 }
+
+export type AttendanceStatus = 'Présent' | 'Absent' | 'Délégué';
+
+export interface AttendanceRecord {
+  userId: string;
+  userName: string;
+  userRole: string;
+  userDepartment: string;
+  status: AttendanceStatus;
+}
+
+export interface WeeklyAttendance {
+  week: string;
+  records: AttendanceRecord[];
+}
+

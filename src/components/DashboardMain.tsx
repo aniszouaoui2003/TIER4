@@ -170,23 +170,63 @@ export default function DashboardMain({
     };
   });
 
-  // Workshop Heatmap modeling
-  const workshops = ['Atelier Injection', 'Atelier Usinage', 'Atelier Assemblage', 'Atelier Expédition'];
+  // Site & Usine Heatmap modeling
+  const scopes = ['Site 1', 'Site 2', 'Total Usine'];
   const columns = ['Sécurité', 'Qualité', 'Livraison', 'Production', 'Maintenance', '5S'];
 
-  const getHeatmapColor = (workshop: string, column: string) => {
-    // Generate realistic status based on actual KPIs
-    if (workshop === 'Atelier Usinage' && (column === 'Qualité' || column === 'Production')) {
-      return 'bg-red-500 text-white'; // CNC3 Quality issue and low OEE
+  const getHeatmapColor = (scope: string, column: string) => {
+    const categoryMap: Record<string, string> = {
+      'Sécurité': 'Sécurité',
+      'Qualité': 'Qualité',
+      'Livraison': 'Livraison',
+      'Production': 'Production',
+      'Maintenance': 'Maintenance',
+      '5S': '5S'
+    };
+
+    const catId = categoryMap[column] || column;
+    const catKpis = kpis.filter(k => k.category === catId);
+
+    // Find all applicable KPIs for this scope and category
+    const applicableKpis = catKpis.filter(k => {
+      if (scope === 'Site 1') return k.site1Checked;
+      if (scope === 'Site 2') return k.site2Checked;
+      return k.totalChecked !== false; // Total Usine
+    });
+
+    if (applicableKpis.length === 0) {
+      return 'bg-slate-100 text-slate-400 dark:bg-slate-800/40 dark:text-slate-500'; // N/A
     }
-    if (workshop === 'Atelier Assemblage' && (column === 'Production' || column === '5S')) {
-      return 'bg-amber-500 text-amber-950'; // Vissage bottleneck and low 5S score
+
+    let hasRed = false;
+    let hasOrange = false;
+
+    applicableKpis.forEach(k => {
+      let val = k.weeklyValue;
+      if (scope === 'Site 1') val = k.site1Value ?? 0;
+      else if (scope === 'Site 2') val = k.site2Value ?? 0;
+
+      let status = k.status;
+      if (scope !== 'Total Usine') {
+        const isOver = val >= k.target;
+        if (k.greenThreshold.includes('== 0')) {
+          status = val === 0 ? 'Green' : (val > 2 ? 'Red' : 'Orange');
+        } else if (k.greenThreshold.includes('<=')) {
+          status = val <= k.target ? 'Green' : (val <= k.target * 1.1 ? 'Orange' : 'Red');
+        } else {
+          status = isOver ? 'Green' : (val >= k.target * 0.9 ? 'Orange' : 'Red');
+        }
+      }
+
+      if (status === 'Red') hasRed = true;
+      if (status === 'Orange') hasOrange = true;
+    });
+
+    if (hasRed) {
+      return 'bg-rose-500 text-white';
     }
-    if (workshop === 'Atelier Injection' && column === 'Maintenance') {
-      return 'bg-amber-500 text-amber-950'; // Power usage / maintenance draft
-    }
-    if (workshop === 'Atelier Expédition' && column === 'Livraison') {
-      return 'bg-red-500 text-white'; // OTIF logs delay
+    if (hasOrange) {
+      return 'bg-amber-500 text-amber-950';
     }
     return 'bg-emerald-500 text-white';
   };
@@ -365,7 +405,7 @@ export default function DashboardMain({
         <div className="bento-card p-5 lg:col-span-7 flex flex-col h-[340px]">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">
-              Heatmap Performance Ateliers
+              Heatmap Performance Sites & Usine
             </h3>
             <div className="flex gap-3 text-[10px] font-semibold text-slate-500 font-mono">
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Conforme</span>
@@ -378,22 +418,23 @@ export default function DashboardMain({
             <table className="w-full text-left border-collapse min-w-[500px]">
               <thead>
                 <tr>
-                  <th className="py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider w-40 font-mono">Atelier</th>
+                  <th className="py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider w-40 font-mono">Site / Périmètre</th>
                   {columns.map(col => (
                     <th key={col} className="py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center font-mono">{col}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {workshops.map(shop => (
-                  <tr key={shop} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
-                    <td className="py-3 text-xs font-semibold text-slate-800 dark:text-slate-200">{shop}</td>
+                {scopes.map(scope => (
+                  <tr key={scope} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                    <td className="py-3 text-xs font-semibold text-slate-800 dark:text-slate-200">{scope}</td>
                     {columns.map(col => {
-                      const colorClass = getHeatmapColor(shop, col);
+                      const colorClass = getHeatmapColor(scope, col);
+                      const displayVal = colorClass.includes('emerald') ? 'OK' : colorClass.includes('amber') ? 'ATT' : colorClass.includes('slate-100') ? 'N/A' : 'KO';
                       return (
                         <td key={col} className="py-3 px-1 text-center">
                           <div className={`mx-auto w-10 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shadow-xs transition-transform hover:scale-105 ${colorClass}`}>
-                            {colorClass.includes('emerald') ? 'OK' : colorClass.includes('amber') ? 'ATT' : 'KO'}
+                            {displayVal}
                           </div>
                         </td>
                       );
@@ -405,7 +446,7 @@ export default function DashboardMain({
           </div>
           
           <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl text-[11px] text-slate-500 dark:text-slate-400 mt-2 border border-blue-100/10">
-            <strong>Observation :</strong> Le goulot d'étranglement de l'usine est actuellement situé à l'<strong>Atelier Usinage</strong> (Problèmes répétés de qualité PPM sur CNC-3 et TRS dégradé).
+            <strong>Observation :</strong> Les indicateurs locaux du Site 1 et du Site 2 sont consolidés au niveau de la gouvernance <strong>Total Usine</strong>. Actuellement, la vigilance principale se porte sur les rebus et l'OEE du Site 1.
           </div>
         </div>
       </div>

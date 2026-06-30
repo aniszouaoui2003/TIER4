@@ -371,7 +371,7 @@ export default function ModuleDetail({
                 <Users className="w-4 h-4 text-teal-500" />
                 <span>Matrice de Polyvalence (ILUO)</span>
               </h3>
-              <p className="text-[10px] text-slate-400">Évaluation des compétences croisées de l'équipe de l'Atelier Injection.</p>
+              <p className="text-[10px] text-slate-400">Évaluation des compétences croisées de l'équipe du Site 1.</p>
               
               <div className="flex-1 overflow-y-auto">
                 <table className="w-full text-[11px] border-collapse">

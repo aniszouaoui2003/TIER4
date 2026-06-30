@@ -52,7 +52,7 @@ export default function ActionPlan({
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
 
   // Form inputs
-  const [newWorkshop, setNewWorkshop] = useState('Atelier Injection');
+  const [newWorkshop, setNewWorkshop] = useState('Site 1');
   const [newDept, setNewDept] = useState('Production');
   const [newSubject, setNewSubject] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -67,7 +67,7 @@ export default function ActionPlan({
   const [commentText, setCommentText] = useState('');
 
   // Dropdown lists
-  const workshops = ['Atelier Injection', 'Atelier Usinage', 'Atelier Assemblage', 'Atelier Expédition', 'Usine (Toutes zones)'];
+  const workshops = ['Site 1', 'Site 2', 'Total Usine'];
   const depts = ['Sécurité', 'Qualité', 'Production', 'Coût', 'Livraison', 'RH', 'Maintenance', '5S', 'Environnement'];
   const priorities = ['Basse', 'Moyenne', 'Haute', 'Critique'];
   const statuses = ['A faire', 'En cours', 'A valider', 'Clôturé'];
@@ -239,13 +239,13 @@ export default function ActionPlan({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
           {/* Workshop Filter */}
           <div>
-            <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase block mb-1 font-mono">Atelier</label>
+            <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase block mb-1 font-mono">Périmètre / Site</label>
             <select
               value={selectedWorkshop}
               onChange={(e) => setSelectedWorkshop(e.target.value)}
               className="w-full text-xs bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-xl py-2 px-2.5 text-slate-800 dark:text-slate-200 focus:outline-none font-semibold cursor-pointer"
             >
-              <option value="Tous">Tous les ateliers</option>
+              <option value="Tous">Tous les sites</option>
               {workshops.map(w => <option key={w} value={w}>{w}</option>)}
             </select>
           </div>
@@ -298,7 +298,7 @@ export default function ActionPlan({
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/60 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">
                 <th className="py-3 px-4 w-28">N° Action</th>
-                <th className="py-3 px-4 w-40">Atelier / Dept</th>
+                <th className="py-3 px-4 w-40">Périmètre / Dept</th>
                 <th className="py-3 px-4">Sujet / Description</th>
                 <th className="py-3 px-4 w-36">Responsable</th>
                 <th className="py-3 px-4 w-28">Échéance</th>
@@ -417,7 +417,7 @@ export default function ActionPlan({
               <div className="grid grid-cols-2 gap-4">
                 {/* Workshop */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Atelier affecté</label>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Périmètre affecté</label>
                   <select
                     value={newWorkshop}
                     onChange={(e) => setNewWorkshop(e.target.value)}
@@ -594,7 +594,7 @@ export default function ActionPlan({
                     {selectedAction.subject}
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Atelier : <strong>{selectedAction.workshop}</strong> • Thématique : <strong>{selectedAction.department}</strong>
+                    Périmètre : <strong>{selectedAction.workshop}</strong> • Thématique : <strong>{selectedAction.department}</strong>
                   </p>
                 </div>
 

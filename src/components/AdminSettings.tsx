@@ -33,6 +33,7 @@ interface AdminSettingsProps {
   auditLogs: AuditLog[];
   onAddKPI: (kpi: Omit<KPI, 'id' | 'history'>) => Promise<void>;
   onUpdateKPI: (id: string, updated: Partial<KPI>) => Promise<void>;
+  onDeleteKPI: (id: string) => Promise<void>;
   onAddUser: (user: Omit<User, 'id'>) => Promise<void>;
   onUpdateSQLConfig: (config: Partial<SQLServerConfig>) => Promise<void>;
   onTriggerSQLSync: () => Promise<void>;
@@ -48,6 +49,7 @@ export default function AdminSettings({
   auditLogs,
   onAddKPI,
   onUpdateKPI,
+  onDeleteKPI,
   onAddUser,
   onUpdateSQLConfig,
   onTriggerSQLSync,
@@ -69,6 +71,9 @@ export default function AdminSettings({
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
+  // Editing state
+  const [editingKpi, setEditingKpi] = useState<KPI | null>(null);
+
   // New KPI Form State
   const [newKpiName, setNewKpiName] = useState('');
   const [newKpiDesc, setNewKpiDesc] = useState('');
@@ -78,6 +83,14 @@ export default function AdminSettings({
   const [newKpiTarget, setNewKpiTarget] = useState(0);
   const [newKpiMinGreen, setNewKpiMinGreen] = useState(0);
   const [newKpiMaxOrange, setNewKpiMaxOrange] = useState(0);
+
+  // Additional settings states for Site and Total checks and owners
+  const [kpiSite1Checked, setKpiSite1Checked] = useState(true);
+  const [kpiSite2Checked, setKpiSite2Checked] = useState(true);
+  const [kpiTotalChecked, setKpiTotalChecked] = useState(true);
+  const [kpiSite1Owner, setKpiSite1Owner] = useState('');
+  const [kpiSite2Owner, setKpiSite2Owner] = useState('');
+  const [kpiOfficeplastOwner, setKpiOfficeplastOwner] = useState('');
 
   // New User Form State
   const [newUsername, setNewUsername] = useState('');
@@ -123,39 +136,90 @@ export default function AdminSettings({
     }, 1500);
   };
 
-  // Handle KPI creation
-  const handleCreateKPI = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newKpiName || !newKpiOwner || !newKpiUnit) return;
+  const handleStartEdit = (k: KPI) => {
+    setEditingKpi(k);
+    setNewKpiName(k.name);
+    setNewKpiDesc(k.description || '');
+    setNewKpiCategory(k.category);
+    setNewKpiOwner(k.owner);
+    setNewKpiUnit(k.unit);
+    setNewKpiTarget(k.target);
+    const match = k.greenThreshold ? k.greenThreshold.match(/[\d.]+/) : null;
+    setNewKpiMinGreen(match ? Number(match[0]) : k.target);
+    setKpiSite1Checked(k.site1Checked !== false);
+    setKpiSite2Checked(k.site2Checked !== false);
+    setKpiTotalChecked(k.totalChecked !== false);
+    setKpiSite1Owner(k.site1Owner || '');
+    setKpiSite2Owner(k.site2Owner || '');
+    setKpiOfficeplastOwner(k.officeplastOwner || '');
+  };
 
-    await onAddKPI({
-      name: newKpiName,
-      description: newKpiDesc,
-      category: newKpiCategory,
-      owner: newKpiOwner,
-      unit: newKpiUnit,
-      target: newKpiTarget,
-      weeklyValue: 0,
-      dailyValue: 0,
-      status: 'Green',
-      trend: 'stable',
-      greenThreshold: `>= ${newKpiMinGreen || newKpiTarget}`,
-      site1Checked: true,
-      site2Checked: true,
-      totalChecked: true,
-      site1Value: 0,
-      site2Value: 0
-    });
-
-    // Reset Form
+  const handleCancelEdit = () => {
+    setEditingKpi(null);
     setNewKpiName('');
     setNewKpiDesc('');
+    setNewKpiCategory('Sécurité');
     setNewKpiOwner('');
     setNewKpiUnit('');
     setNewKpiTarget(0);
     setNewKpiMinGreen(0);
     setNewKpiMaxOrange(0);
-    alert(`L'indicateur "${newKpiName}" a été correctement ajouté aux référentiels Tier 4.`);
+    setKpiSite1Checked(true);
+    setKpiSite2Checked(true);
+    setKpiTotalChecked(true);
+    setKpiSite1Owner('');
+    setKpiSite2Owner('');
+    setKpiOfficeplastOwner('');
+  };
+
+  // Handle KPI creation or update
+  const handleCreateKPI = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKpiName || !newKpiOwner || !newKpiUnit) return;
+
+    if (editingKpi) {
+      await onUpdateKPI(editingKpi.id, {
+        name: newKpiName,
+        description: newKpiDesc,
+        category: newKpiCategory,
+        owner: newKpiOwner,
+        unit: newKpiUnit,
+        target: newKpiTarget,
+        greenThreshold: `>= ${newKpiMinGreen || newKpiTarget}`,
+        site1Checked: kpiSite1Checked,
+        site2Checked: kpiSite2Checked,
+        totalChecked: kpiTotalChecked,
+        site1Owner: kpiSite1Owner || undefined,
+        site2Owner: kpiSite2Owner || undefined,
+        officeplastOwner: kpiOfficeplastOwner || undefined
+      });
+      alert(`L'indicateur "${newKpiName}" a été correctement mis à jour.`);
+      handleCancelEdit();
+    } else {
+      await onAddKPI({
+        name: newKpiName,
+        description: newKpiDesc,
+        category: newKpiCategory,
+        owner: newKpiOwner,
+        unit: newKpiUnit,
+        target: newKpiTarget,
+        weeklyValue: 0,
+        dailyValue: 0,
+        status: 'Green',
+        trend: 'stable',
+        greenThreshold: `>= ${newKpiMinGreen || newKpiTarget}`,
+        site1Checked: kpiSite1Checked,
+        site2Checked: kpiSite2Checked,
+        totalChecked: kpiTotalChecked,
+        site1Owner: kpiSite1Owner || undefined,
+        site2Owner: kpiSite2Owner || undefined,
+        officeplastOwner: kpiOfficeplastOwner || undefined,
+        site1Value: 0,
+        site2Value: 0
+      });
+      alert(`L'indicateur "${newKpiName}" a été correctement ajouté aux référentiels Tier 4.`);
+      handleCancelEdit();
+    }
   };
 
   // Handle User Creation
@@ -175,8 +239,8 @@ export default function AdminSettings({
     alert(`L'utilisateur ${newUsername} a été inscrit avec les droits d'accès: ${newUserRole}.`);
   };
 
-  // Guard view for non-admin
-  if (currentUser.role !== 'Admin' && currentUser.role !== 'DG' && currentUser.role !== 'DI') {
+  // Guard view for Viewer only (all other roles have permissions)
+  if (currentUser.role === 'Viewer') {
     return (
       <div className="flex-1 flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950">
         <div className="max-w-md bg-white dark:bg-slate-900 p-8 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs text-center space-y-4">
@@ -270,10 +334,18 @@ export default function AdminSettings({
         {/* PANEL 1: REPERTOIRE KPI + SEUILS */}
         {activeAdminTab === 'kpis' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
-            {/* Create KPI Form */}
+            {/* Create / Edit KPI Form */}
             <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
               <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-blue-500" /> Ajouter un Indicateur
+                {editingKpi ? (
+                  <>
+                    <Sliders className="w-4 h-4 text-amber-500" /> Modifier l'Indicateur
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 text-blue-500" /> Ajouter un Indicateur
+                  </>
+                )}
               </h3>
 
               <form onSubmit={handleCreateKPI} className="space-y-3.5">
@@ -335,11 +407,11 @@ export default function AdminSettings({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Pilote de l'indicateur *</label>
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Pilote Global *</label>
                     <input
                       type="text"
                       required
-                      placeholder="Nom du pilote"
+                      placeholder="Nom du pilote principal"
                       value={newKpiOwner}
                       onChange={(e) => setNewKpiOwner(e.target.value)}
                       className="w-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 rounded p-2 text-slate-800 dark:text-slate-200"
@@ -360,20 +432,94 @@ export default function AdminSettings({
                   </div>
                 </div>
 
+                {/* Scope Selection */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg space-y-2.5 border border-slate-100 dark:border-slate-800">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono block">Champs de saisie & Pilotes Locaux</span>
+                  <div className="flex gap-4 text-[10px] font-medium text-slate-600 dark:text-slate-300">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={kpiSite1Checked}
+                        onChange={(e) => setKpiSite1Checked(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Site 1 (S1)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={kpiSite2Checked}
+                        onChange={(e) => setKpiSite2Checked(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Site 2 (S2)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={kpiTotalChecked}
+                        onChange={(e) => setKpiTotalChecked(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>HQ (Total)</span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 pt-1 border-t border-slate-200/55 dark:border-slate-800">
+                    {kpiSite1Checked && (
+                      <div className="grid grid-cols-12 items-center gap-2">
+                        <label className="col-span-4 text-[8px] font-bold text-slate-400 uppercase">Pilote Site 1</label>
+                        <input
+                          type="text"
+                          placeholder="Nom pilote S1"
+                          value={kpiSite1Owner}
+                          onChange={(e) => setKpiSite1Owner(e.target.value)}
+                          className="col-span-8 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 dark:text-slate-200 text-[10px]"
+                        />
+                      </div>
+                    )}
+                    {kpiSite2Checked && (
+                      <div className="grid grid-cols-12 items-center gap-2">
+                        <label className="col-span-4 text-[8px] font-bold text-slate-400 uppercase">Pilote Site 2</label>
+                        <input
+                          type="text"
+                          placeholder="Nom pilote S2"
+                          value={kpiSite2Owner}
+                          onChange={(e) => setKpiSite2Owner(e.target.value)}
+                          className="col-span-8 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 dark:text-slate-200 text-[10px]"
+                        />
+                      </div>
+                    )}
+                    {kpiTotalChecked && (
+                      <div className="grid grid-cols-12 items-center gap-2">
+                        <label className="col-span-4 text-[8px] font-bold text-slate-400 uppercase">Pilote HQ</label>
+                        <input
+                          type="text"
+                          placeholder="Nom pilote HQ"
+                          value={kpiOfficeplastOwner}
+                          onChange={(e) => setKpiOfficeplastOwner(e.target.value)}
+                          className="col-span-8 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 dark:text-slate-200 text-[10px]"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Thresholds definition */}
                 <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg space-y-2 border border-slate-100 dark:border-slate-800">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono block">Définir les seuils d'alertes visuelles</span>
                   
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[8px] font-bold text-emerald-600 uppercase mb-0.5">Seuil Minimum Vert</label>
+                      <label className="block text-[8px] font-bold text-emerald-600 uppercase mb-0.5">Seuil Minimum Vert *</label>
                       <input
                         type="number"
+                        required
                         step="any"
                         placeholder="Vert si >= à..."
                         value={newKpiMinGreen || ''}
                         onChange={(e) => setNewKpiMinGreen(Number(e.target.value))}
-                        className="w-full border border-slate-200 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 text-[11px] font-mono"
+                        className="w-full border border-slate-200 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 dark:text-slate-200 text-[11px] font-mono"
                       />
                     </div>
                     <div>
@@ -384,18 +530,33 @@ export default function AdminSettings({
                         placeholder="Rouge si <= à..."
                         value={newKpiMaxOrange || ''}
                         onChange={(e) => setNewKpiMaxOrange(Number(e.target.value))}
-                        className="w-full border border-slate-200 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 text-[11px] font-mono"
+                        className="w-full border border-slate-200 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 dark:text-slate-200 text-[11px] font-mono"
                       />
                     </div>
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors cursor-pointer"
-                >
-                  Enregistrer l'Indicateur
-                </button>
+                <div className="flex gap-2.5">
+                  {editingKpi && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="w-1/3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className={`py-2 text-white font-bold rounded-lg transition-colors cursor-pointer ${
+                      editingKpi 
+                        ? 'w-2/3 bg-amber-500 hover:bg-amber-600' 
+                        : 'w-full bg-blue-600 hover:bg-blue-700'
+                    }`}
+                  >
+                    {editingKpi ? "Mettre à jour" : "Enregistrer l'Indicateur"}
+                  </button>
+                </div>
               </form>
             </div>
 
@@ -407,16 +568,25 @@ export default function AdminSettings({
               
               <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-[11px]">
                 {kpis.map(k => (
-                  <div key={k.id} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-100 dark:border-slate-800 flex justify-between items-center hover:bg-slate-100/40">
+                  <div key={k.id} className={`p-3 rounded-lg border flex justify-between items-center transition-colors ${
+                    editingKpi?.id === k.id
+                      ? 'bg-amber-50/50 dark:bg-amber-950/15 border-amber-300/60 dark:border-amber-900/40'
+                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 hover:bg-slate-100/40'
+                  }`}>
                     <div className="min-w-0 flex-1 pr-4">
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{k.name}</span>
                         <span className="text-[8px] bg-slate-200/60 dark:bg-slate-700 px-1 rounded font-bold uppercase font-mono">{k.category}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400">Cible : <strong>{k.target} {k.unit}</strong> • Pilote : {k.owner}</p>
+                      <p className="text-[10px] text-slate-400">
+                        Cible : <strong>{k.target} {k.unit}</strong> • Pilote : {k.owner}
+                        {k.site1Checked && ` • S1: ${k.site1Owner || 'Indéfini'}`}
+                        {k.site2Checked && ` • S2: ${k.site2Owner || 'Indéfini'}`}
+                        {k.totalChecked && ` • HQ: ${k.officeplastOwner || 'Indéfini'}`}
+                      </p>
                     </div>
 
-                    {/* Inline thresholds editing simulation */}
+                    {/* Inline thresholds editing & deletion */}
                     <div className="flex items-center gap-3 shrink-0">
                       <div className="text-right">
                         <span className="text-[9px] text-slate-400 uppercase font-bold block mb-0.5">Seuils V/O/R</span>
@@ -426,15 +596,29 @@ export default function AdminSettings({
                       </div>
 
                       <button
-                        onClick={() => {
-                          const targetValue = prompt(`Modifier la cible chiffrée pour ${k.name} :`, String(k.target));
-                          if (targetValue && !isNaN(Number(targetValue))) {
-                            onUpdateKPI(k.id, { target: Number(targetValue) });
+                        onClick={() => handleStartEdit(k)}
+                        className={`text-xs font-semibold px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                          editingKpi?.id === k.id
+                            ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                            : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        {editingKpi?.id === k.id ? 'Édition...' : 'Éditer'}
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          if (window.confirm(`Êtes-vous sûr de vouloir supprimer définitivement l'indicateur "${k.name}" ?`)) {
+                            await onDeleteKPI(k.id);
+                            if (editingKpi?.id === k.id) {
+                              handleCancelEdit();
+                            }
                           }
                         }}
-                        className="text-xs font-semibold px-2 py-1 bg-white border rounded hover:bg-slate-50 text-slate-700"
+                        className="p-1.5 rounded bg-rose-50 dark:bg-rose-950/25 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-rose-600 transition-colors cursor-pointer"
+                        title="Supprimer cet indicateur"
                       >
-                        Éditer
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -495,7 +679,7 @@ export default function AdminSettings({
                       <option value="Maint">Responsable Maintenance (Maint)</option>
                       <option value="RH">Responsable Ressources Humaines (RH)</option>
                       <option value="Log">Responsable Logistique (Log)</option>
-                      <option value="Workshop">Manager d'Atelier (Workshop)</option>
+                      <option value="Workshop">Responsable de Site / Périmètre</option>
                       <option value="Viewer">Consultation (Viewer)</option>
                     </select>
                   </div>
@@ -542,8 +726,8 @@ export default function AdminSettings({
 
                     <div className="text-right">
                       <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                        u.role === 'Admin' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400' :
-                        u.role === 'DG' || u.role === 'DI' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400' :
+                        u.role.includes('DGA') ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400' :
+                        u.role.includes('Directeur') || u.role.includes('directeur') ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400' :
                         u.role === 'Viewer' ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' :
                         'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400'
                       }`}>
@@ -689,14 +873,14 @@ export default function AdminSettings({
             <div>
               <h3 className="text-base font-bold text-slate-800 dark:text-white">Passerelle Standardisée d'Échanges d'Usine</h3>
               <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto leading-normal">
-                Importez à tout moment vos fichiers Excel d'ateliers pour écraser ou alimenter les KPI du jour. Exportez la base consolidée des plans d'actions pour archivage.
+                Importez à tout moment vos fichiers Excel de sites pour écraser ou alimenter les KPI du jour. Exportez la base consolidée des plans d'actions pour archivage.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
               <div className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2">
                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Importation</span>
-                <p className="text-[10px] text-slate-500 leading-normal">Uploadez le tableau d'Atelier (.xlsx / .csv)</p>
+                <p className="text-[10px] text-slate-500 leading-normal">Uploadez le tableau de Site (.xlsx / .csv)</p>
                 <button
                   onClick={handleExcelUploadSimulate}
                   className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded cursor-pointer transition-all"

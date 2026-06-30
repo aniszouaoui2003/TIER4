@@ -14,9 +14,18 @@ import { GoogleGenAI, Type } from '@google/genai';
 // Load environment variables
 dotenv.config();
 
-// Determine directory name in ES Module scope
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Determine directory name safely in both ES Module and CommonJS scopes
+const getPaths = () => {
+  try {
+    const isESM = typeof import.meta !== 'undefined' && !!import.meta.url;
+    const filename = isESM ? fileURLToPath(import.meta.url) : (typeof __filename !== 'undefined' ? __filename : '');
+    const dirname = isESM ? path.dirname(filename) : (typeof __dirname !== 'undefined' ? __dirname : process.cwd());
+    return { filename, dirname };
+  } catch {
+    return { filename: '', dirname: process.cwd() };
+  }
+};
+const { filename: __filename, dirname: __dirname } = getPaths();
 
 // Initialize Express
 const app = express();
@@ -32,7 +41,8 @@ import {
   INITIAL_MEETINGS,
   INITIAL_SQL_CONFIG,
   INITIAL_AUDIT_LOGS,
-  INITIAL_USERS
+  INITIAL_USERS,
+  INITIAL_ATTENDANCE
 } from './src/data/mockData';
 
 // Helper to initialize and retrieve database
@@ -43,13 +53,216 @@ interface DataStoreSchema {
   sqlConfig: typeof INITIAL_SQL_CONFIG;
   logs: typeof INITIAL_AUDIT_LOGS;
   users: typeof INITIAL_USERS;
+  attendance: typeof INITIAL_ATTENDANCE;
+}
+
+function evaluateKPIStatus(value: number, target: number, name: string, category: string): 'Green' | 'Orange' | 'Red' {
+  const lowerName = name.toLowerCase();
+  const isLowerBetter =
+    category === 'Sécurité' ||
+    lowerName.includes('accidents') ||
+    lowerName.includes('ppm') ||
+    lowerName.includes('retard') ||
+    lowerName.includes('accident') ||
+    lowerName.includes('panne') ||
+    lowerName.includes('absentéisme') ||
+    lowerName.includes('déchet') ||
+    lowerName.includes('consommation') ||
+    lowerName.includes('électricité') ||
+    lowerName.includes('eau');
+
+  if (isLowerBetter) {
+    if (value <= target) return 'Green';
+    if (value <= target * 1.15) return 'Orange';
+    return 'Red';
+  } else {
+    if (value >= target) return 'Green';
+    if (value >= target * 0.9) return 'Orange';
+    return 'Red';
+  }
+}
+
+function updateKPIHistory(kpi: any, week: string, value: number) {
+  if (!kpi.history) kpi.history = [];
+  const idx = kpi.history.findIndex((h: any) => h.date === week);
+  if (idx !== -1) {
+    kpi.history[idx].value = value;
+  } else {
+    kpi.history.push({ date: week, value });
+  }
+}
+
+function recalculateAllFormulas(db: DataStoreSchema) {
+  if (!db.kpis) return;
+
+  const currentWeekLabel = 'Semaine 26';
+
+  // 1. Recalculate % de conformité = (PC - (NC1 * 2 + NC2)) / PC * 100
+  const pc = db.kpis.find(k => k.id === 'kpi-qual-pc');
+  const nc1 = db.kpis.find(k => k.id === 'kpi-qual-nc1');
+  const nc2 = db.kpis.find(k => k.id === 'kpi-qual-nc2');
+  const conf = db.kpis.find(k => k.id === 'kpi-qual-conformite');
+
+  if (conf) {
+    const pcW = pc?.weeklyValue || 0;
+    const nc1W = nc1?.weeklyValue || 0;
+    const nc2W = nc2?.weeklyValue || 0;
+    const valW = pcW > 0 ? ((pcW - (nc1W * 2 + nc2W)) / pcW) * 100 : 100;
+    conf.weeklyValue = Number(Math.max(0, Math.min(100, valW)).toFixed(1));
+
+    const pcD = pc?.dailyValue || 0;
+    const nc1D = nc1?.dailyValue || 0;
+    const nc2D = nc2?.dailyValue || 0;
+    const valD = pcD > 0 ? ((pcD - (nc1D * 2 + nc2D)) / pcD) * 100 : 100;
+    conf.dailyValue = Number(Math.max(0, Math.min(100, valD)).toFixed(1));
+
+    conf.status = evaluateKPIStatus(conf.weeklyValue, conf.target, conf.name, conf.category);
+    updateKPIHistory(conf, currentWeekLabel, conf.weeklyValue);
+
+    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
+    weeks.forEach(w => {
+      const pcH = pc?.history?.find(h => h.date === w)?.value || 0;
+      const nc1H = nc1?.history?.find(h => h.date === w)?.value || 0;
+      const nc2H = nc2?.history?.find(h => h.date === w)?.value || 0;
+      const valH = pcH > 0 ? ((pcH - (nc1H * 2 + nc2H)) / pcH) * 100 : 100;
+      updateKPIHistory(conf, w, Number(Math.max(0, Math.min(100, valH)).toFixed(1)));
+    });
+  }
+
+  // 2. Recalculate % de productivité = (QF / QP) * 100
+  const qf = db.kpis.find(k => k.id === 'kpi-prod-qf');
+  const qp = db.kpis.find(k => k.id === 'kpi-prod-qp');
+  const prod = db.kpis.find(k => k.id === 'kpi-prod-productivite');
+
+  if (prod) {
+    const qfW = qf?.weeklyValue || 0;
+    const qpW = qp?.weeklyValue || 0;
+    prod.weeklyValue = qpW > 0 ? Number(((qfW / qpW) * 100).toFixed(1)) : 100;
+
+    const qfD = qf?.dailyValue || 0;
+    const qpD = qp?.dailyValue || 0;
+    prod.dailyValue = qpD > 0 ? Number(((qfD / qpD) * 100).toFixed(1)) : 100;
+
+    prod.status = evaluateKPIStatus(prod.weeklyValue, prod.target, prod.name, prod.category);
+    updateKPIHistory(prod, currentWeekLabel, prod.weeklyValue);
+
+    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
+    weeks.forEach(w => {
+      const qfH = qf?.history?.find(h => h.date === w)?.value || 0;
+      const qpH = qp?.history?.find(h => h.date === w)?.value || 0;
+      const valH = qpH > 0 ? (qfH / qpH) * 100 : 100;
+      updateKPIHistory(prod, w, Number(valH.toFixed(1)));
+    });
+  }
+
+  // 3. Recalculate % recette = RF/RP
+  const rf = db.kpis.find(k => k.id === 'kpi-cost-rf');
+  const rp = db.kpis.find(k => k.id === 'kpi-cost-rp');
+  const ratio = db.kpis.find(k => k.id === 'kpi-cost-ratio');
+
+  if (ratio) {
+    const rfW = rf?.weeklyValue || 0;
+    const rpW = rp?.weeklyValue || 0;
+    ratio.weeklyValue = rpW > 0 ? Number(((rfW / rpW) * 100).toFixed(1)) : 100;
+
+    const rfD = rf?.dailyValue || 0;
+    const rpD = rp?.dailyValue || 0;
+    ratio.dailyValue = rpD > 0 ? Number(((rfD / rpD) * 100).toFixed(1)) : 100;
+
+    ratio.status = evaluateKPIStatus(ratio.weeklyValue, ratio.target, ratio.name, ratio.category);
+    updateKPIHistory(ratio, currentWeekLabel, ratio.weeklyValue);
+
+    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
+    weeks.forEach(w => {
+      const rfH = rf?.history?.find(h => h.date === w)?.value || 0;
+      const rpH = rp?.history?.find(h => h.date === w)?.value || 0;
+      const valH = rpH > 0 ? (rfH / rpH) * 100 : 100;
+      updateKPIHistory(ratio, w, Number(valH.toFixed(1)));
+    });
+  }
+
+  // 4. Recalculate "valeur produite" = rf (recette fabrique)
+  const valProd = db.kpis.find(k => k.id === 'kpi-cost-valeur-produite');
+  if (rf && valProd) {
+    valProd.weeklyValue = rf.weeklyValue;
+    valProd.dailyValue = rf.dailyValue;
+    valProd.target = rf.target;
+    valProd.status = evaluateKPIStatus(valProd.weeklyValue, valProd.target, valProd.name, valProd.category);
+    updateKPIHistory(valProd, currentWeekLabel, valProd.weeklyValue);
+
+    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
+    weeks.forEach(w => {
+      const rfH = rf.history?.find(h => h.date === w)?.value || 0;
+      updateKPIHistory(valProd, w, rfH);
+    });
+  }
+
+  // 5. Recalculate % déchet = Valeur déchet/Valeur produite
+  const valDechet = db.kpis.find(k => k.id === 'kpi-cost-valeur-dechet');
+  const tauxDechet = db.kpis.find(k => k.id === 'kpi-cost-taux-dechet');
+
+  if (valDechet && valProd && tauxDechet) {
+    const vdW = valDechet.weeklyValue || 0;
+    const vpW = valProd.weeklyValue || 0;
+    tauxDechet.weeklyValue = vpW > 0 ? Number(((vdW / vpW) * 100).toFixed(2)) : 0;
+
+    const vdD = valDechet.dailyValue || 0;
+    const vpD = valProd.dailyValue || 0;
+    tauxDechet.dailyValue = vpD > 0 ? Number(((vdD / vpD) * 100).toFixed(2)) : 0;
+
+    tauxDechet.status = evaluateKPIStatus(tauxDechet.weeklyValue, tauxDechet.target, tauxDechet.name, tauxDechet.category);
+    updateKPIHistory(tauxDechet, currentWeekLabel, tauxDechet.weeklyValue);
+
+    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
+    weeks.forEach(w => {
+      const vdH = valDechet.history?.find(h => h.date === w)?.value || 0;
+      const vpH = valProd.history?.find(h => h.date === w)?.value || 0;
+      const valH = vpH > 0 ? (vdH / vpH) * 100 : 0;
+      updateKPIHistory(tauxDechet, w, Number(valH.toFixed(2)));
+    });
+  }
 }
 
 function readDB(): DataStoreSchema {
   try {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      return JSON.parse(raw);
+      const data = JSON.parse(raw);
+      let modified = false;
+
+      // Always enforce the updated INITIAL_USERS list to replace old ones
+      if (JSON.stringify(data.users) !== JSON.stringify(INITIAL_USERS)) {
+        data.users = INITIAL_USERS;
+        modified = true;
+      }
+
+      const hasOldUsers = data.attendance && data.attendance.some((week: any) =>
+        week.records && week.records.some((rec: any) => rec.userName === 'Jean-Pierre Dubois' || rec.userName === 'Marc Lemaire')
+      );
+
+      if (!data.attendance || hasOldUsers) {
+        data.attendance = INITIAL_ATTENDANCE;
+        modified = true;
+      }
+
+      const hasOldMeetings = data.meetings && data.meetings.some((m: any) =>
+        m.facilitator && m.facilitator.includes('Marc Lemaire')
+      );
+
+      if (!data.meetings || hasOldMeetings) {
+        data.meetings = INITIAL_MEETINGS;
+        modified = true;
+      }
+
+      if (!data.kpis || data.kpis.length === 0) {
+        data.kpis = INITIAL_KPIS;
+        modified = true;
+      }
+
+      if (modified) {
+        writeDB(data);
+      }
+      return data;
     }
   } catch (err) {
     console.error('Error reading database file, using fallback mock data:', err);
@@ -62,7 +275,8 @@ function readDB(): DataStoreSchema {
     meetings: INITIAL_MEETINGS,
     sqlConfig: INITIAL_SQL_CONFIG,
     logs: INITIAL_AUDIT_LOGS,
-    users: INITIAL_USERS
+    users: INITIAL_USERS,
+    attendance: INITIAL_ATTENDANCE
   };
   writeDB(defaultData);
   return defaultData;
@@ -70,6 +284,7 @@ function readDB(): DataStoreSchema {
 
 function writeDB(data: DataStoreSchema) {
   try {
+    recalculateAllFormulas(data);
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
     console.error('Error writing database file:', err);
@@ -377,6 +592,75 @@ app.post('/api/meetings', (req, res) => {
 app.get('/api/logs', (req, res) => {
   const db = readDB();
   res.json(db.logs);
+});
+
+// 5b. Attendance API routes
+app.get('/api/attendance', (req, res) => {
+  const db = readDB();
+  res.json(db.attendance || []);
+});
+
+app.post('/api/attendance', (req, res) => {
+  const db = readDB();
+  const { week, records } = req.body;
+
+  if (!week || !records) {
+    return res.status(400).json({ error: 'Week and records are required.' });
+  }
+
+  if (!db.attendance) {
+    db.attendance = [];
+  }
+
+  const existingIdx = db.attendance.findIndex(a => a.week === week);
+  if (existingIdx !== -1) {
+    db.attendance[existingIdx].records = records;
+  } else {
+    db.attendance.push({ week, records });
+  }
+
+  // Calculate presence rate: Present = 1.0, Delegated = 1.0, Absent = 0.0
+  const totalCount = records.length;
+  const presentCount = records.filter((r: any) => r.status === 'Présent' || r.status === 'Délégué').length;
+  const rate = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 100;
+
+  // Auto-update 'kpi-rh-presence' KPI
+  const kpiIdx = db.kpis.findIndex(k => k.id === 'kpi-rh-presence');
+  if (kpiIdx !== -1) {
+    const kpi = db.kpis[kpiIdx];
+    
+    // Update current weekly value if it's the latest week ('Semaine 26')
+    if (week === 'Semaine 26') {
+      kpi.weeklyValue = rate;
+      kpi.status = rate >= 100 ? 'Green' : (rate >= 90 ? 'Orange' : 'Red');
+    }
+
+    // Update historical value
+    const histIdx = kpi.history.findIndex(h => h.date === week);
+    if (histIdx !== -1) {
+      kpi.history[histIdx].value = rate;
+    } else {
+      kpi.history.push({ date: week, value: rate });
+    }
+    
+    // Log KPI change
+    addAuditLog(
+      'Système (Auto)',
+      'Admin',
+      'Calcul Présence',
+      'Ressources Humaines',
+      `Taux de présence au Tier4 recalculé à ${rate}% pour la ${week} et injecté dans le KPI [${kpi.name}].`
+    );
+  }
+
+  writeDB(db);
+
+  res.json({
+    success: true,
+    week,
+    calculatedRate: rate,
+    attendance: db.attendance
+  });
 });
 
 // 6. SQL Server Sync Simulator

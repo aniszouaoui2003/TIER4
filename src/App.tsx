@@ -10,6 +10,8 @@ import ModuleDetail from './components/ModuleDetail';
 import ActionPlan from './components/ActionPlan';
 import MeetingManager from './components/MeetingManager';
 import AdminSettings from './components/AdminSettings';
+import KPITeamGuruEntry from './components/KPITeamGuruEntry';
+import AttendanceTracker from './components/AttendanceTracker';
 import { User, KPI, Action, Meeting, SQLServerConfig, AuditLog } from './types';
 
 export default function App() {
@@ -71,8 +73,8 @@ export default function App() {
       setSqlConfig(resSql);
       setAuditLogs(resLogs);
 
-      // Default simulated user is Marc Lemaire (DI)
-      const defaultUser = resUsers.find((u: User) => u.role === 'DI') || resUsers[0];
+      // Default simulated user is Anis Zouaoui
+      const defaultUser = resUsers.find((u: User) => u.email === 'anis.zouaoui2003@gmail.com') || resUsers[0];
       setCurrentUser(defaultUser);
     } catch (err: any) {
       console.error('Failed to boot Tier 4 data layers:', err);
@@ -245,6 +247,20 @@ export default function App() {
     }
   };
 
+  // 7b. DELETE KPI
+  const handleDeleteKPI = async (id: string) => {
+    if (!currentUser) return;
+    try {
+      const response = await fetch(`/api/kpis/${id}?user=${encodeURIComponent(currentUser.name)}&role=${encodeURIComponent(currentUser.role)}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Échec de suppression du KPI');
+      await refreshKpisAndLogs();
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    }
+  };
+
   // 8. REGISTER NEW COLLABORATOR (ADMIN)
   const handleAddUser = async (newUserData: Omit<User, 'id'>) => {
     try {
@@ -403,6 +419,22 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'kpi-entry' && (
+            <KPITeamGuruEntry
+              kpis={kpis}
+              onUpdateKPI={handleUpdateKPI}
+              currentUser={currentUser}
+            />
+          )}
+
+          {activeTab === 'presence-tracker' && (
+            <AttendanceTracker
+              users={users}
+              currentUser={currentUser!}
+              onRefreshData={fetchInitialData}
+            />
+          )}
+
           {activeTab === 'actions' && (
             <ActionPlan
               actions={actions}
@@ -433,6 +465,7 @@ export default function App() {
               auditLogs={auditLogs}
               onAddKPI={handleAddKPI}
               onUpdateKPI={handleUpdateKPI}
+              onDeleteKPI={handleDeleteKPI}
               onAddUser={handleAddUser}
               onUpdateSQLConfig={handleUpdateSQLConfig}
               onTriggerSQLSync={handleTriggerSQLSync}
@@ -450,6 +483,7 @@ export default function App() {
               auditLogs={auditLogs}
               onAddKPI={handleAddKPI}
               onUpdateKPI={handleUpdateKPI}
+              onDeleteKPI={handleDeleteKPI}
               onAddUser={handleAddUser}
               onUpdateSQLConfig={handleUpdateSQLConfig}
               onTriggerSQLSync={handleTriggerSQLSync}

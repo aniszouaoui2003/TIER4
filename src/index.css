@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom micro-interactions and layout adjustments for the Bento Grid theme */
+.bento-card {
+  @apply bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-xs transition-all duration-300;
+}
+
+.bento-card:hover {
+  @apply shadow-md;
+}
+
+.bento-card-interactive {
+  @apply bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-xs transition-all duration-300 cursor-pointer;
+}
+
+.bento-card-interactive:hover {
+  @apply shadow-md border-blue-400 dark:border-blue-500;
+}
+
+.bento-card-interactive:active {
+  transform: scale(0.99);
+}
+
+/* Subtle glow effects for status tracking */
+.glow-green {
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+.glow-amber {
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+}
+.glow-rose {
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.2);
+}

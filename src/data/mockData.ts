@@ -1,0 +1,941 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { KPI, Action, Meeting, SQLServerConfig, AuditLog, User } from '../types';
+
+export const INITIAL_USERS: User[] = [
+  { id: 'usr-1', name: 'Jean-Pierre Dubois', email: 'jp.dubois@usine.com', role: 'DG', department: 'Direction' },
+  { id: 'usr-2', name: 'Anis Zouaoui', email: 'anis.zouaoui2003@gmail.com', role: 'Admin', department: 'Systèmes d\'Information' },
+  { id: 'usr-3', name: 'Marc Lemaire', email: 'm.lemaire@usine.com', role: 'DI', department: 'Opérations' },
+  { id: 'usr-4', name: 'Sophie Martin', email: 's.martin@usine.com', role: 'Prod', department: 'Production' },
+  { id: 'usr-5', name: 'Thomas Bernard', email: 't.bernard@usine.com', role: 'Qual', department: 'Qualité' },
+  { id: 'usr-6', name: 'Lucas Petit', email: 'l.petit@usine.com', role: 'Maint', department: 'Maintenance' },
+  { id: 'usr-7', name: 'Hélène Richard', email: 'h.richard@usine.com', role: 'RH', department: 'Ressources Humaines' },
+  { id: 'usr-8', name: 'Pierre Durand', email: 'p.durand@usine.com', role: 'Log', department: 'Supply Chain' },
+  { id: 'usr-9', name: 'Camille Moreau', email: 'c.moreau@usine.com', role: 'Workshop', department: 'Atelier Injection' }
+];
+
+export const INITIAL_KPIS: KPI[] = [
+  // === SÉCURITÉ & PEOPLE (Sécurité & RH) ===
+  {
+    id: 'kpi-rh-presence',
+    category: 'RH',
+    name: 'présence Hebdomadaire au Tier4 par fonction',
+    unit: '%',
+    dailyValue: 92,
+    weeklyValue: 92,
+    target: 100,
+    trend: 'stable',
+    status: 'Orange',
+    description: 'Taux d\'assiduité hebdomadaire des responsables de fonctions au rituel Tier 4.',
+    greenThreshold: '== 100',
+    owner: 'Hélène Richard',
+    site1Checked: false,
+    site2Checked: false,
+    totalChecked: true,
+    history: [
+      { date: 'Semaine 23', value: 95 },
+      { date: 'Semaine 24', value: 100 },
+      { date: 'Semaine 25', value: 92 },
+      { date: 'Semaine 26', value: 92 }
+    ]
+  },
+  {
+    id: 'kpi-sec-accidents',
+    category: 'Sécurité',
+    name: 'nombre des accidents',
+    unit: 'acc',
+    dailyValue: 0,
+    weeklyValue: 1,
+    target: 0,
+    trend: 'up',
+    status: 'Red',
+    description: 'Nombre cumulé d\'accidents du travail survenus durant la semaine.',
+    greenThreshold: '== 0',
+    owner: 'Hélène Richard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 1,
+    site2Value: 0,
+    history: [
+      { date: 'Semaine 23', value: 0 },
+      { date: 'Semaine 24', value: 0 },
+      { date: 'Semaine 25', value: 0 },
+      { date: 'Semaine 26', value: 1 }
+    ]
+  },
+  {
+    id: 'kpi-sec-gemba',
+    category: 'Sécurité',
+    name: 'Suivi de Gemba HSE',
+    unit: '%',
+    dailyValue: 96,
+    weeklyValue: 96,
+    target: 100,
+    trend: 'up',
+    status: 'Green',
+    description: 'Taux de réalisation et conformité des audits HSE terrain (Gemba Walks).',
+    greenThreshold: '>= 95',
+    owner: 'Marc Lemaire',
+    site1Checked: false,
+    site2Checked: false,
+    totalChecked: true,
+    history: [
+      { date: 'Semaine 23', value: 90 },
+      { date: 'Semaine 24', value: 92 },
+      { date: 'Semaine 25', value: 95 },
+      { date: 'Semaine 26', value: 96 }
+    ]
+  },
+  {
+    id: 'kpi-sec-retard',
+    category: 'Sécurité',
+    name: 'Nombre des actions en retard',
+    unit: 'actions',
+    dailyValue: 2,
+    weeklyValue: 2,
+    target: 0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'Nombre d\'actions correctives et préventives en dépassement d\'échéance.',
+    greenThreshold: '== 0',
+    owner: 'Marc Lemaire',
+    site1Checked: false,
+    site2Checked: false,
+    totalChecked: true,
+    history: [
+      { date: 'Semaine 23', value: 5 },
+      { date: 'Semaine 24', value: 4 },
+      { date: 'Semaine 25', value: 3 },
+      { date: 'Semaine 26', value: 2 }
+    ]
+  },
+  {
+    id: 'kpi-rh-headcount',
+    category: 'RH',
+    name: 'Headcount',
+    unit: 'pers.',
+    dailyValue: 126,
+    weeklyValue: 126,
+    target: 130,
+    trend: 'stable',
+    status: 'Green',
+    description: 'Effectif physique total de l\'usine présent pour la production.',
+    greenThreshold: '>= 120',
+    owner: 'Hélène Richard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 72,
+    site2Value: 54,
+    history: [
+      { date: 'Semaine 23', value: 125 },
+      { date: 'Semaine 24', value: 126 },
+      { date: 'Semaine 25', value: 127 },
+      { date: 'Semaine 26', value: 126 }
+    ]
+  },
+  {
+    id: 'kpi-rh-etp',
+    category: 'RH',
+    name: 'ETP',
+    unit: 'etp',
+    dailyValue: 121,
+    weeklyValue: 121,
+    target: 125,
+    trend: 'stable',
+    status: 'Green',
+    description: 'Effectif calculé en Équivalent Temps Plein (ETP) de production.',
+    greenThreshold: '>= 115',
+    owner: 'Hélène Richard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 69,
+    site2Value: 52,
+    history: [
+      { date: 'Semaine 23', value: 120 },
+      { date: 'Semaine 24', value: 121 },
+      { date: 'Semaine 25', value: 122 },
+      { date: 'Semaine 26', value: 121 }
+    ]
+  },
+  {
+    id: 'kpi-rh-gap',
+    category: 'RH',
+    name: 'GAP Headcount VS PDP',
+    unit: 'pers.',
+    dailyValue: -4,
+    weeklyValue: -4,
+    target: 0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'Écart entre les besoins théoriques de production (PDP) et le headcount réel.',
+    greenThreshold: '== 0',
+    owner: 'Hélène Richard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: -3,
+    site2Value: -1,
+    history: [
+      { date: 'Semaine 23', value: -2 },
+      { date: 'Semaine 24', value: -1 },
+      { date: 'Semaine 25', value: -3 },
+      { date: 'Semaine 26', value: -4 }
+    ]
+  },
+
+  // === QUALITÉ ===
+  {
+    id: 'kpi-qual-reclamation',
+    category: 'Qualité',
+    name: 'Nombre de reclamation client',
+    unit: 'récl.',
+    dailyValue: 0,
+    weeklyValue: 2,
+    target: 0,
+    trend: 'up',
+    status: 'Red',
+    description: 'Nombre de fiches de réclamation officielles ouvertes suite à notification client.',
+    greenThreshold: '== 0',
+    owner: 'Thomas Bernard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 1,
+    site2Value: 1,
+    history: [
+      { date: 'Semaine 23', value: 0 },
+      { date: 'Semaine 24', value: 1 },
+      { date: 'Semaine 25', value: 1 },
+      { date: 'Semaine 26', value: 2 }
+    ]
+  },
+  {
+    id: 'kpi-qual-nc1',
+    category: 'Qualité',
+    name: 'NC1=nombre de retour magasin PF',
+    unit: 'retours',
+    dailyValue: 1,
+    weeklyValue: 4,
+    target: 0,
+    trend: 'up',
+    status: 'Red',
+    description: 'Nombre de retours physiques de produits finis non conformes au magasin logistique.',
+    greenThreshold: '== 0',
+    owner: 'Thomas Bernard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 2,
+    site2Value: 2,
+    history: [
+      { date: 'Semaine 23', value: 1 },
+      { date: 'Semaine 24', value: 2 },
+      { date: 'Semaine 25', value: 3 },
+      { date: 'Semaine 26', value: 4 }
+    ]
+  },
+  {
+    id: 'kpi-qual-nc2',
+    category: 'Qualité',
+    name: 'NC2=nombre de palettes NC',
+    unit: 'palettes',
+    dailyValue: 1,
+    weeklyValue: 7,
+    target: 0,
+    trend: 'up',
+    status: 'Red',
+    description: 'Volume de palettes bloquées au contrôle ou identifiées non-conformes (NC).',
+    greenThreshold: '== 0',
+    owner: 'Thomas Bernard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 4,
+    site2Value: 3,
+    history: [
+      { date: 'Semaine 23', value: 2 },
+      { date: 'Semaine 24', value: 4 },
+      { date: 'Semaine 25', value: 5 },
+      { date: 'Semaine 26', value: 7 }
+    ]
+  },
+  {
+    id: 'kpi-qual-pc',
+    category: 'Qualité',
+    name: 'PC=nombre de palettes contrôlés',
+    unit: 'palettes',
+    dailyValue: 30,
+    weeklyValue: 185,
+    target: 200,
+    trend: 'down',
+    status: 'Green',
+    description: 'Nombre de palettes physiques inspectées par le service qualité.',
+    greenThreshold: '>= 150',
+    owner: 'Thomas Bernard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 105,
+    site2Value: 80,
+    history: [
+      { date: 'Semaine 23', value: 190 },
+      { date: 'Semaine 24', value: 195 },
+      { date: 'Semaine 25', value: 188 },
+      { date: 'Semaine 26', value: 185 }
+    ]
+  },
+  {
+    id: 'kpi-qual-conformite',
+    category: 'Qualité',
+    name: '% de conformité= (PC-(NC1*2-NC2))/PC',
+    unit: '%',
+    dailyValue: 91.4,
+    weeklyValue: 91.4,
+    target: 98.0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'Taux de conformité synthétique calculé d\'après le rapport des palettes contrôlées et des anomalies magasin.',
+    greenThreshold: '>= 98.0',
+    owner: 'Thomas Bernard',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 90.5,
+    site2Value: 92.5,
+    history: [
+      { date: 'Semaine 23', value: 98.5 },
+      { date: 'Semaine 24', value: 97.2 },
+      { date: 'Semaine 25', value: 95.0 },
+      { date: 'Semaine 26', value: 91.4 }
+    ]
+  },
+
+  // === LIVRAISON (Delivery) ===
+  {
+    id: 'kpi-del-respect',
+    category: 'Livraison',
+    name: '% de respect de planning',
+    unit: '%',
+    dailyValue: 93.0,
+    weeklyValue: 92.5,
+    target: 95.0,
+    trend: 'stable',
+    status: 'Orange',
+    description: 'Adhérence réelle de la production aux lancements de fabrication ordonnancés.',
+    greenThreshold: '>= 95.0',
+    owner: 'Pierre Durand',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 91.0,
+    site2Value: 94.0,
+    history: [
+      { date: 'Semaine 23', value: 95.5 },
+      { date: 'Semaine 24', value: 94.8 },
+      { date: 'Semaine 25', value: 92.0 },
+      { date: 'Semaine 26', value: 92.5 }
+    ]
+  },
+  {
+    id: 'kpi-del-pastdue',
+    category: 'Livraison',
+    name: 'Pastdue local',
+    unit: 'pces',
+    dailyValue: 120,
+    weeklyValue: 150,
+    target: 0,
+    trend: 'up',
+    status: 'Red',
+    description: 'Volume de commandes client non expédiées et hors délai de livraison local.',
+    greenThreshold: '== 0',
+    owner: 'Pierre Durand',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 90,
+    site2Value: 60,
+    history: [
+      { date: 'Semaine 23', value: 40 },
+      { date: 'Semaine 24', value: 85 },
+      { date: 'Semaine 25', value: 110 },
+      { date: 'Semaine 26', value: 150 }
+    ]
+  },
+  {
+    id: 'kpi-del-rupture',
+    category: 'Livraison',
+    name: 'Nbre de ligne en rupture',
+    unit: 'lignes',
+    dailyValue: 1,
+    weeklyValue: 1,
+    target: 0,
+    trend: 'stable',
+    status: 'Orange',
+    description: 'Nombre de lignes de conditionnement ou d\'expédition temporairement arrêtées par manque de pièces.',
+    greenThreshold: '== 0',
+    owner: 'Pierre Durand',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 1,
+    site2Value: 0,
+    history: [
+      { date: 'Semaine 23', value: 0 },
+      { date: 'Semaine 24', value: 1 },
+      { date: 'Semaine 25', value: 1 },
+      { date: 'Semaine 26', value: 1 }
+    ]
+  },
+  {
+    id: 'kpi-del-couverture',
+    category: 'Livraison',
+    name: '% de couverture',
+    unit: '%',
+    dailyValue: 96.5,
+    weeklyValue: 96.2,
+    target: 98.0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'Taux de couverture des prévisions de livraison clients par les approvisionnements validés.',
+    greenThreshold: '>= 98.0',
+    owner: 'Pierre Durand',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 95.5,
+    site2Value: 97.0,
+    history: [
+      { date: 'Semaine 23', value: 98.2 },
+      { date: 'Semaine 24', value: 97.5 },
+      { date: 'Semaine 25', value: 96.0 },
+      { date: 'Semaine 26', value: 96.2 }
+    ]
+  },
+  {
+    id: 'kpi-del-ottr',
+    category: 'Livraison',
+    name: 'OTTR export',
+    unit: '%',
+    dailyValue: 91.8,
+    weeklyValue: 91.8,
+    target: 95.0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'On-Time Delivery Performance (OTTR) mesurée sur les envois internationaux d\'exportation.',
+    greenThreshold: '>= 95.0',
+    owner: 'Pierre Durand',
+    site1Checked: false,
+    site2Checked: false,
+    totalChecked: true,
+    history: [
+      { date: 'Semaine 23', value: 94.5 },
+      { date: 'Semaine 24', value: 93.8 },
+      { date: 'Semaine 25', value: 91.0 },
+      { date: 'Semaine 26', value: 91.8 }
+    ]
+  },
+
+  // === COÛT / PRODUCTION ===
+  {
+    id: 'kpi-prod-qf',
+    category: 'Production',
+    name: 'QF = Quantité Fabriqué',
+    unit: 'pces',
+    dailyValue: 4100,
+    weeklyValue: 28450,
+    target: 30000,
+    trend: 'up',
+    status: 'Green',
+    description: 'Quantité nette de produits conformes et finis fabriqués au cours de la période.',
+    greenThreshold: '>= 28000',
+    owner: 'Sophie Martin',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 16200,
+    site2Value: 12250,
+    history: [
+      { date: 'Semaine 23', value: 29500 },
+      { date: 'Semaine 24', value: 28800 },
+      { date: 'Semaine 25', value: 27900 },
+      { date: 'Semaine 26', value: 28450 }
+    ]
+  },
+  {
+    id: 'kpi-prod-qp',
+    category: 'Production',
+    name: 'QP = Quantité prévue',
+    unit: 'pces',
+    dailyValue: 4300,
+    weeklyValue: 30000,
+    target: 30000,
+    trend: 'stable',
+    status: 'Green',
+    description: 'Volume prévisionnel de fabrication fixé par le plan directeur de production (PDP).',
+    greenThreshold: '>= 30000',
+    owner: 'Sophie Martin',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 17000,
+    site2Value: 13000,
+    history: [
+      { date: 'Semaine 23', value: 30000 },
+      { date: 'Semaine 24', value: 30000 },
+      { date: 'Semaine 25', value: 30000 },
+      { date: 'Semaine 26', value: 30000 }
+    ]
+  },
+  {
+    id: 'kpi-prod-productivite',
+    category: 'Production',
+    name: '% de productivité = QF/QP',
+    unit: '%',
+    dailyValue: 95.3,
+    weeklyValue: 94.8,
+    target: 98.0,
+    trend: 'up',
+    status: 'Orange',
+    description: 'Rendement physique global calculé d\'après le rapport de production brute QF/QP.',
+    greenThreshold: '>= 98.0',
+    owner: 'Sophie Martin',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 95.3,
+    site2Value: 94.2,
+    history: [
+      { date: 'Semaine 23', value: 98.3 },
+      { date: 'Semaine 24', value: 96.0 },
+      { date: 'Semaine 25', value: 93.0 },
+      { date: 'Semaine 26', value: 94.8 }
+    ]
+  },
+  {
+    id: 'kpi-cost-rf',
+    category: 'Coût',
+    name: 'RF = recette fabriqué',
+    unit: 'k€',
+    dailyValue: 21.0,
+    weeklyValue: 142.5,
+    target: 150.0,
+    trend: 'up',
+    status: 'Green',
+    description: 'Valorisation financière en Kilo Euros de la production réelle conformée.',
+    greenThreshold: '>= 140.0',
+    owner: 'Sophie Martin',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 81.0,
+    site2Value: 61.5,
+    history: [
+      { date: 'Semaine 23', value: 147.5 },
+      { date: 'Semaine 24', value: 144.0 },
+      { date: 'Semaine 25', value: 139.5 },
+      { date: 'Semaine 26', value: 142.5 }
+    ]
+  },
+  {
+    id: 'kpi-cost-rp',
+    category: 'Coût',
+    name: 'RP = recette prévu',
+    unit: 'k€',
+    dailyValue: 21.4,
+    weeklyValue: 150.0,
+    target: 150.0,
+    trend: 'stable',
+    status: 'Green',
+    description: 'Valorisation financière cible de la production d\'après le budget prévisionnel.',
+    greenThreshold: '>= 150.0',
+    owner: 'Sophie Martin',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 85.0,
+    site2Value: 65.0,
+    history: [
+      { date: 'Semaine 23', value: 150.0 },
+      { date: 'Semaine 24', value: 150.0 },
+      { date: 'Semaine 25', value: 150.0 },
+      { date: 'Semaine 26', value: 150.0 }
+    ]
+  },
+  {
+    id: 'kpi-cost-ratio',
+    category: 'Coût',
+    name: '% recette=RF/RP',
+    unit: '%',
+    dailyValue: 95.3,
+    weeklyValue: 95.0,
+    target: 98.0,
+    trend: 'up',
+    status: 'Orange',
+    description: 'Performance d\'alignement budgétaire du chiffre fabriqué réel par rapport aux prévisions.',
+    greenThreshold: '>= 98.0',
+    owner: 'Sophie Martin',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 95.3,
+    site2Value: 94.6,
+    history: [
+      { date: 'Semaine 23', value: 98.3 },
+      { date: 'Semaine 24', value: 96.0 },
+      { date: 'Semaine 25', value: 93.0 },
+      { date: 'Semaine 26', value: 95.0 }
+    ]
+  },
+
+  // === MAINTENANCE ===
+  {
+    id: 'kpi-maint-dispo',
+    category: 'Maintenance',
+    name: 'Maintenance : Taux de disponibilité',
+    unit: '%',
+    dailyValue: 88.2,
+    weeklyValue: 89.5,
+    target: 92.0,
+    trend: 'down',
+    status: 'Red',
+    description: 'Taux effectif d\'ouverture opérationnelle des lignes machines critiques sans panne.',
+    greenThreshold: '>= 92.0',
+    owner: 'Lucas Petit',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 88.2,
+    site2Value: 91.0,
+    history: [
+      { date: 'Semaine 23', value: 94.1 },
+      { date: 'Semaine 24', value: 92.8 },
+      { date: 'Semaine 25', value: 91.5 },
+      { date: 'Semaine 26', value: 89.5 }
+    ]
+  },
+  {
+    id: 'kpi-maint-prev',
+    category: 'Maintenance',
+    name: 'Maintenance : Taux de respect préventive',
+    unit: '%',
+    dailyValue: 92.0,
+    weeklyValue: 92.4,
+    target: 95.0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'Ratio d\'exécution du planning de maintenance préventive niveau 1 et 2.',
+    greenThreshold: '>= 95.0',
+    owner: 'Lucas Petit',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 91.0,
+    site2Value: 94.2,
+    history: [
+      { date: 'Semaine 23', value: 96.0 },
+      { date: 'Semaine 24', value: 95.5 },
+      { date: 'Semaine 25', value: 93.0 },
+      { date: 'Semaine 26', value: 92.4 }
+    ]
+  },
+  {
+    id: 'kpi-maint-ratio',
+    category: 'Maintenance',
+    name: 'maintenance : taux de curatif vs préventif',
+    unit: '%',
+    dailyValue: 26.8,
+    weeklyValue: 24.5,
+    target: 20.0,
+    trend: 'up',
+    status: 'Orange',
+    description: 'Part d\'heures consommée en dépannage urgent (curatif) vs maintenance standard (préventif).',
+    greenThreshold: '<= 20.0',
+    owner: 'Lucas Petit',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 26.8,
+    site2Value: 21.5,
+    history: [
+      { date: 'Semaine 23', value: 18.2 },
+      { date: 'Semaine 24', value: 20.5 },
+      { date: 'Semaine 25', value: 23.0 },
+      { date: 'Semaine 26', value: 24.5 }
+    ]
+  },
+
+  // === AMÉLIORATION / 5S / ENVIRONNEMENT ===
+  {
+    id: 'kpi-env-tier',
+    category: 'Environnement',
+    name: 'adherence au Tier meeting',
+    unit: '%',
+    dailyValue: 96.0,
+    weeklyValue: 96.5,
+    target: 95.0,
+    trend: 'up',
+    status: 'Green',
+    description: 'Taux d\'adhésion, de ponctualité et de rigueur vis-à-vis des réunions d\'atelier de niveau 1-2-3.',
+    greenThreshold: '>= 95.0',
+    owner: 'Marc Lemaire',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 95.0,
+    site2Value: 98.0,
+    history: [
+      { date: 'Semaine 23', value: 94.0 },
+      { date: 'Semaine 24', value: 95.5 },
+      { date: 'Semaine 25', value: 96.0 },
+      { date: 'Semaine 26', value: 96.5 }
+    ]
+  },
+  {
+    id: 'kpi-5s-score',
+    category: '5S',
+    name: '% score 5S',
+    unit: '%',
+    dailyValue: 83.0,
+    weeklyValue: 83.4,
+    target: 85.0,
+    trend: 'down',
+    status: 'Orange',
+    description: 'Niveau moyen d\'application de la méthodologie 5S relevé lors des audits physiques d\'ateliers.',
+    greenThreshold: '>= 85.0',
+    owner: 'Marc Lemaire',
+    site1Checked: true,
+    site2Checked: true,
+    totalChecked: true,
+    site1Value: 82.0,
+    site2Value: 85.2,
+    history: [
+      { date: 'Semaine 23', value: 86.5 },
+      { date: 'Semaine 24', value: 85.0 },
+      { date: 'Semaine 25', value: 84.0 },
+      { date: 'Semaine 26', value: 83.4 }
+    ]
+  }
+];
+
+export const INITIAL_ACTIONS: Action[] = [
+  {
+    id: 'act-1',
+    autoNum: 'ACT-2026-001',
+    date: '2026-06-15',
+    workshop: 'Atelier Injection',
+    department: 'Sécurité',
+    subject: 'Sécurisation de la zone robot de déchargement Presse 4',
+    description: 'Constat : Lors de l\'audit de sécurité, il a été relevé que les carters latéraux de sécurité présentaient un jeu anormal. Risque de cisaillement si un opérateur s\'approche.',
+    rootCause: 'Usure prématurée des fixations rapides suite aux vibrations continues de la presse.',
+    actionTaken: 'Remplacer les fixations rapides par des boulons haute sécurité et installer des capteurs d\'interverrouillage actifs.',
+    owner: 'Lucas Petit',
+    dueDate: '2026-06-30',
+    priority: 'Haute',
+    status: 'A faire',
+    completionPercentage: 30,
+    comments: [
+      { id: 'c-1', user: 'Hélène Richard', role: 'RH', text: 'Action critique à surveiller de près. Aucun opérateur ne doit travailler dans la zone sans coupure d\'alimentation générale en attendant la pose des boulons.', date: '2026-06-16T14:32:00Z' },
+      { id: 'c-2', user: 'Lucas Petit', role: 'Maint', text: 'Pièces commandées chez le fournisseur. Réception prévue le 28 juin. Intervention programmée pour le 29 juin lors de l\'arrêt de maintenance hebdo.', date: '2026-06-17T09:15:00Z' }
+    ],
+    attachments: [
+      { id: 'att-1', name: 'photo_defaut_presse4.png', size: '2.4 MB', type: 'image/png', url: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=400' }
+    ]
+  },
+  {
+    id: 'act-2',
+    autoNum: 'ACT-2026-002',
+    date: '2026-06-18',
+    workshop: 'Atelier Usinage',
+    department: 'Qualité',
+    subject: 'Mise en place d\'un gabarit Poka-Yoke sur le centre d\'usinage CNC-3',
+    description: 'Une réclamation client "Erreur d\'orientation de la rainure" a mis en évidence un risque d\'inversion du sens de positionnement des pièces par l\'opérateur lors du chargement manuel.',
+    rootCause: 'Absence de détrompeur mécanique sur le mandrin de serrage.',
+    actionTaken: 'Concevoir et usiner un pion détrompeur (Poka-Yoke) empêchant la fermeture du mandrin si la pièce est inversée.',
+    owner: 'Thomas Bernard',
+    dueDate: '2026-06-25',
+    priority: 'Critique',
+    status: 'Clôturé',
+    completionPercentage: 100,
+    comments: [
+      { id: 'c-3', user: 'Marc Lemaire', role: 'DI', text: 'Gabarit posé et validé par l\'équipe Qualité de terrain.', date: '2026-06-24T16:45:00Z' }
+    ],
+    attachments: [
+      { id: 'att-2', name: 'fiche_8D_CNC3.pdf', size: '480 KB', type: 'application/pdf', url: '#' }
+    ]
+  },
+  {
+    id: 'act-3',
+    autoNum: 'ACT-2026-003',
+    date: '2026-06-22',
+    workshop: 'Atelier Assemblage',
+    department: 'Production',
+    subject: 'Équilibrage de la ligne de montage Vannes 2 pouces',
+    description: 'Objectif TRS non atteint sur le poste de vissage automatisé. Le poste de vissage est le goulot d\'étranglement de la ligne (temps de cycle de 42 secondes contre 30 secondes pour le reste de la ligne).',
+    rootCause: 'Paramétrage inadapté de l\'outil de vissage électrique et séquence d\'approvisionnement des composants manuelle trop longue.',
+    actionTaken: 'Reprogrammer le contrôleur de vissage pour optimiser la rampe d\'accélération, et installer un rack d\'alimentation par gravité à portée immédiate.',
+    owner: 'Sophie Martin',
+    dueDate: '2026-07-05',
+    priority: 'Moyenne',
+    status: 'En cours',
+    completionPercentage: 60,
+    comments: [
+      { id: 'c-4', user: 'Sophie Martin', role: 'Prod', text: 'Le rack par gravité a été fabriqué en interne et monté. Le temps de manipulation est déjà réduit de 4 secondes. Reste le paramétrage de la visseuse.', date: '2026-06-26T11:00:00Z' }
+    ],
+    attachments: []
+  },
+  {
+    id: 'act-4',
+    autoNum: 'ACT-2026-004',
+    date: '2026-06-24',
+    workshop: 'Atelier Usinage',
+    department: 'Maintenance',
+    subject: 'Révision majeure du moteur hydraulique de la ligne CNC-4',
+    description: 'Constat : Températures d\'huile anormalement élevées (85°C contre 60°C de consigne) avec légères pertes de pression en charge.',
+    rootCause: 'Obstruction partielle de l\'échangeur thermique et usure des joints de turbine.',
+    actionTaken: 'Nettoyage chimique de l\'échangeur de chaleur et remplacement du kit complet de joints d\'étanchéité.',
+    owner: 'Lucas Petit',
+    dueDate: '2026-06-28',
+    priority: 'Haute',
+    status: 'A valider',
+    completionPercentage: 95,
+    comments: [
+      { id: 'c-5', user: 'Lucas Petit', role: 'Maint', text: 'Intervention terminée ce matin. La température en charge s\'est stabilisée à 58°C sur 4 heures de production continue. En attente de signature de validation de la prod.', date: '2026-06-28T15:20:00Z' }
+    ],
+    attachments: [
+      { id: 'att-3', name: 'rapport_visuel_moteur.jpg', size: '1.8 MB', type: 'image/jpeg', url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=400' }
+    ]
+  },
+  {
+    id: 'act-5',
+    autoNum: 'ACT-2026-005',
+    date: '2026-06-25',
+    workshop: 'Atelier Expédition',
+    department: 'Logistique',
+    subject: 'Optimisation du flux de picking des kits d\'expédition',
+    description: 'Augmentation des retards d\'expédition OTIF suite à des goulots d\'étranglement lors de la constitution des palettes mixtes. Des références sont stockées dans des allées trop distantes.',
+    rootCause: 'Modification récente du catalogue produits sans réorganisation de l\'adressage dynamique des racks de picking (Slotting).',
+    actionTaken: 'Calculer les fréquences de rotation de chaque SKU (analyse ABC) et réadresser les 15 références "A" (forte rotation) au plus près de la zone de filmage.',
+    owner: 'Pierre Durand',
+    dueDate: '2026-07-10',
+    priority: 'Moyenne',
+    status: 'En cours',
+    completionPercentage: 40,
+    comments: [],
+    attachments: []
+  },
+  {
+    id: 'act-6',
+    autoNum: 'ACT-2026-006',
+    date: '2026-06-26',
+    workshop: 'Usine (Toutes zones)',
+    department: '5S',
+    subject: 'Mise en place de marquages au sol standardisés',
+    description: 'Score 5S en baisse sur la thématique "Seiton" (Rangement). Absence d\'harmonisation des couleurs de délimitation de zones de stockage temporaire (rebuts, encours, emballages vides).',
+    rootCause: 'Disparition progressive des lignes peintes et utilisation de rubans adhésifs de couleurs disparates achetés hors-standard.',
+    actionTaken: 'Définir une charte visuelle standard de marquage au sol (Vert: Encours, Rouge: Rebuts, Jaune: Voie piétonne, Bleu: Emballages), et peindre les ateliers prioritaires.',
+    owner: 'Camille Moreau',
+    dueDate: '2026-07-15',
+    priority: 'Moyenne',
+    status: 'A faire',
+    completionPercentage: 10,
+    comments: [],
+    attachments: [
+      { id: 'att-4', name: 'audit_5s_photo_defaut.jpg', size: '1.5 MB', type: 'image/jpeg', url: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?auto=format&fit=crop&q=80&w=400' }
+    ]
+  }
+];
+
+export const INITIAL_MEETINGS: Meeting[] = [
+  {
+    id: 'meet-1',
+    date: '2026-06-29',
+    weekNumber: 26,
+    facilitator: 'Marc Lemaire (Directeur Industriel)',
+    scribe: 'Sophie Martin (Prod)',
+    status: 'ongoing',
+    attendees: [
+      { name: 'Jean-Pierre Dubois', role: 'DG', email: 'jp.dubois@usine.com', present: true },
+      { name: 'Marc Lemaire', role: 'DI', email: 'm.lemaire@usine.com', present: true },
+      { name: 'Sophie Martin', role: 'Prod', email: 's.martin@usine.com', present: true },
+      { name: 'Thomas Bernard', role: 'Qual', email: 't.bernard@usine.com', present: true },
+      { name: 'Lucas Petit', role: 'Maint', email: 'l.petit@usine.com', present: true },
+      { name: 'Hélène Richard', role: 'RH', email: 'h.richard@usine.com', present: true },
+      { name: 'Pierre Durand', role: 'Log', email: 'p.durand@usine.com', present: true },
+      { name: 'Camille Moreau', role: 'Workshop', email: 'c.moreau@usine.com', present: false }
+    ],
+    activeStepIndex: 0,
+    stepComments: {
+      'Sécurité': 'Zéro accident avec arrêt cette semaine. Les remontées de situations dangereuses (Near Miss) sont excellentes grâce à la sensibilisation sur la Presse 4.',
+      'Qualité': 'Le taux de PPM reste préoccupant sur les vannes usinées de la ligne CNC-3. Réclamation reçue le 24/06. Action Poka-Yoke prioritaire.',
+      'Livraison': 'Tension sur l\'OTIF liée aux délais de livraison d\'un sous-traitant de fonderie et à l\'organisation du picking.',
+      'Production': 'Le TRS global est tiré vers le bas par l\'usinage. L\'Atelier Injection performe correctement.',
+      'Coût': 'Rebuts matières en hausse suite aux réglages de démarrage sur la ligne d\'injection.',
+      'Maintenance': 'Arrêt majeur constaté sur l\'échangeur du moteur de la ligne CNC-4. L\'équipe a fait un superbe travail pour une réouverture dimanche.',
+      'RH': 'Absentéisme en hausse (5.8% au lieu de 4%) lié aux épidémies saisonnières et fatigue des équipes de nuit.',
+      '5S': 'Le rangement de fin de poste s\'est relâché dans l\'Atelier Assemblage. Action marquage à mener.',
+      'Environnement': 'Tendance à la hausse de la facture énergétique liée aux périodes de canicule qui ont sollicité les refroidisseurs au maximum.'
+    },
+    stepDecisions: {
+      'Sécurité': 'Maintenir l\'effort sur les VSS hebdomadaires.',
+      'Qualité': 'Thomas Bernard mène un groupe de travail 8D mercredi pour le défaut de rainurage.',
+      'Livraison': 'Auditer le sous-traitant fonderie sous 48h par Pierre Durand.',
+      'Production': 'Organiser un point de recalage du plan de production avec la Planification.',
+      'Coût': 'Lancer un audit de réglage presse lors des changements de moules.',
+      'Maintenance': 'Intégrer le nettoyage préventif des échangeurs au plan de maintenance autonome.',
+      'RH': 'Faire appel à l\'intérim pour compenser les absences critiques de l\'équipe C.',
+      '5S': 'Camille Moreau pilote un chantier de réimplantation 5S flash vendredi après-midi.',
+      'Environnement': 'Mettre en place une consigne d\'allumage partiel des refroidisseurs lors des week-ends.'
+    },
+    generalDecisions: [
+      'Validation de la mise à jour des objectifs trimestriels pour le TRS.',
+      'Arbitrage favorable pour le renfort temporaire de 3 intérimaires qualifiés en Injection.'
+    ]
+  },
+  {
+    id: 'meet-2',
+    date: '2026-06-22',
+    weekNumber: 25,
+    facilitator: 'Marc Lemaire (DI)',
+    scribe: 'Sophie Martin (Prod)',
+    status: 'completed',
+    attendees: [
+      { name: 'Jean-Pierre Dubois', role: 'DG', email: 'jp.dubois@usine.com', present: true, signed: true, signatureDate: '2026-06-22T11:45:00Z' },
+      { name: 'Marc Lemaire', role: 'DI', email: 'm.lemaire@usine.com', present: true, signed: true, signatureDate: '2026-06-22T11:46:00Z' },
+      { name: 'Sophie Martin', role: 'Prod', email: 's.martin@usine.com', present: true, signed: true, signatureDate: '2026-06-22T11:46:30Z' },
+      { name: 'Thomas Bernard', role: 'Qual', email: 't.bernard@usine.com', present: true, signed: true, signatureDate: '2026-06-22T11:48:00Z' },
+      { name: 'Lucas Petit', role: 'Maint', email: 'l.petit@usine.com', present: true, signed: true, signatureDate: '2026-06-22T11:49:00Z' },
+      { name: 'Hélène Richard', role: 'RH', email: 'h.richard@usine.com', present: true, signed: true, signatureDate: '2026-06-22T11:50:00Z' }
+    ],
+    activeStepIndex: 9,
+    stepComments: {},
+    stepDecisions: {},
+    generalDecisions: [
+      'Lancement officiel de l\'action de sécurisation Presse 4.',
+      'Validation du budget pour la réfection thermique de l\'atelier Injection.'
+    ]
+  }
+];
+
+export const INITIAL_SQL_CONFIG: SQLServerConfig = {
+  host: 'sqlserver-prod.usine.local',
+  database: 'MES_Production_DB',
+  username: 'app_tier4_reader',
+  port: 1433,
+  isConnected: true,
+  lastSyncTime: '2026-06-29T08:00:00Z',
+  syncIntervalMinutes: 60,
+  mode: 'Demonstration'
+};
+
+export const INITIAL_AUDIT_LOGS: AuditLog[] = [
+  { id: 'log-1', timestamp: '2026-06-29T08:00:00Z', user: 'Système (Auto)', role: 'Admin', action: 'Synchronisation', module: 'MES Database', details: 'Lecture réussie de 18 KPIs industriels depuis SQL Server (Tables [V_TRS_HEBDO], [V_QUALITE_PPM]).' },
+  { id: 'log-2', timestamp: '2026-06-28T15:21:00Z', user: 'Lucas Petit', role: 'Maint', action: 'Modification d\'action', module: 'Maintenance', details: 'Passage de l\'action ACT-2026-004 à "A valider" avec taux d\'avancement de 95%.' },
+  { id: 'log-3', timestamp: '2026-06-26T14:30:00Z', user: 'Thomas Bernard', role: 'Qual', action: 'Importation', module: 'Qualité', details: 'Import réussi des rebuts de l\'Atelier Usinage via fichier Excel.' },
+  { id: 'log-4', timestamp: '2026-06-25T10:00:00Z', user: 'Hélène Richard', role: 'RH', action: 'Mise à jour d\'objectif', module: 'Ressources Humaines', details: 'Modification de l\'objectif d\'absentéisme trimestriel à 4.0%.' }
+];

@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
-import { loadRaw, persistRaw } from './src/data/store';
+import { loadRaw, persistRaw } from './src/data/store.js';
 
 // Load environment variables
 dotenv.config();

@@ -5,11 +5,10 @@
 
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import { loadRaw, persistRaw } from './src/data/store';
 
 // Load environment variables
 dotenv.config();
@@ -32,7 +31,6 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 
 const PORT = 3000;
-const DB_FILE = path.join(process.cwd(), 'data-store.json');
 
 // Import initial data structures
 import {
@@ -223,11 +221,10 @@ function recalculateAllFormulas(db: DataStoreSchema) {
   }
 }
 
-function readDB(): DataStoreSchema {
+async function readDB(): Promise<DataStoreSchema> {
   try {
-    if (fs.existsSync(DB_FILE)) {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const data = JSON.parse(raw);
+    const data = await loadRaw<DataStoreSchema>();
+    if (data) {
       let modified = false;
 
       // Always enforce the updated INITIAL_USERS list to replace old ones
@@ -260,12 +257,12 @@ function readDB(): DataStoreSchema {
       }
 
       if (modified) {
-        writeDB(data);
+        await writeDB(data);
       }
       return data;
     }
   } catch (err) {
-    console.error('Error reading database file, using fallback mock data:', err);
+    console.error('Error reading database, using fallback mock data:', err);
   }
   
   // Return default mock structures
@@ -278,22 +275,22 @@ function readDB(): DataStoreSchema {
     users: INITIAL_USERS,
     attendance: INITIAL_ATTENDANCE
   };
-  writeDB(defaultData);
+  await writeDB(defaultData);
   return defaultData;
 }
 
-function writeDB(data: DataStoreSchema) {
+async function writeDB(data: DataStoreSchema) {
   try {
     recalculateAllFormulas(data);
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    await persistRaw(data);
   } catch (err) {
-    console.error('Error writing database file:', err);
+    console.error('Error writing database:', err);
   }
 }
 
 // Helper to create audit log
-function addAuditLog(user: string, role: string, action: string, module: string, details: string) {
-  const db = readDB();
+async function addAuditLog(user: string, role: string, action: string, module: string, details: string) {
+  const db = await readDB();
   const newLog = {
     id: `log-${Date.now()}`,
     timestamp: new Date().toISOString(),
@@ -308,7 +305,7 @@ function addAuditLog(user: string, role: string, action: string, module: string,
   if (db.logs.length > 200) {
     db.logs = db.logs.slice(0, 200);
   }
-  writeDB(db);
+  await writeDB(db);
 }
 
 // ==========================================
@@ -316,20 +313,20 @@ function addAuditLog(user: string, role: string, action: string, module: string,
 // ==========================================
 
 // 1. Users list
-app.get('/api/users', (req, res) => {
-  const db = readDB();
+app.get('/api/users', async (req, res) => {
+  const db = await readDB();
   res.json(db.users);
 });
 
-app.post('/api/users', (req, res) => {
-  const db = readDB();
+app.post('/api/users', async (req, res) => {
+  const db = await readDB();
   const newUser = {
     id: `usr-${Date.now()}`,
     ...req.body
   };
   db.users.push(newUser);
-  writeDB(db);
-  addAuditLog(
+  await writeDB(db);
+  await addAuditLog(
     'Administrateur',
     'Admin',
     'Habilitation',
@@ -340,19 +337,19 @@ app.post('/api/users', (req, res) => {
 });
 
 // 2. KPIs list & single operations
-app.get('/api/kpis', (req, res) => {
-  const db = readDB();
+app.get('/api/kpis', async (req, res) => {
+  const db = await readDB();
   res.json(db.kpis);
 });
 
-app.put('/api/kpis/:id', (req, res) => {
-  const db = readDB();
+app.put('/api/kpis/:id', async (req, res) => {
+  const db = await readDB();
   const { id } = req.params;
   const index = db.kpis.findIndex(k => k.id === id);
   if (index !== -1) {
     db.kpis[index] = { ...db.kpis[index], ...req.body };
-    writeDB(db);
-    addAuditLog(
+    await writeDB(db);
+    await addAuditLog(
       req.body.modifiedBy || 'Jean-Pierre Dubois',
       req.body.modifiedByRole || 'DG',
       'Modification',
@@ -366,8 +363,8 @@ app.put('/api/kpis/:id', (req, res) => {
 });
 
 // Create new KPI (Admin UI capability)
-app.post('/api/kpis', (req, res) => {
-  const db = readDB();
+app.post('/api/kpis', async (req, res) => {
+  const db = await readDB();
   const newKpi = {
     id: `kpi-custom-${Date.now()}`,
     history: [
@@ -378,8 +375,8 @@ app.post('/api/kpis', (req, res) => {
     ...req.body
   };
   db.kpis.push(newKpi);
-  writeDB(db);
-  addAuditLog(
+  await writeDB(db);
+  await addAuditLog(
     req.body.modifiedBy || 'Administrateur',
     'Admin',
     'Création',
@@ -390,15 +387,15 @@ app.post('/api/kpis', (req, res) => {
 });
 
 // Delete KPI
-app.delete('/api/kpis/:id', (req, res) => {
-  const db = readDB();
+app.delete('/api/kpis/:id', async (req, res) => {
+  const db = await readDB();
   const { id } = req.params;
   const index = db.kpis.findIndex(k => k.id === id);
   if (index !== -1) {
     const deleted = db.kpis[index];
     db.kpis.splice(index, 1);
-    writeDB(db);
-    addAuditLog(
+    await writeDB(db);
+    await addAuditLog(
       (req.query.user as string) || 'Administrateur',
       (req.query.role as string) || 'Admin',
       'Suppression',
@@ -412,13 +409,13 @@ app.delete('/api/kpis/:id', (req, res) => {
 });
 
 // 3. Action Plan Operations
-app.get('/api/actions', (req, res) => {
-  const db = readDB();
+app.get('/api/actions', async (req, res) => {
+  const db = await readDB();
   res.json(db.actions);
 });
 
-app.post('/api/actions', (req, res) => {
-  const db = readDB();
+app.post('/api/actions', async (req, res) => {
+  const db = await readDB();
   const year = new Date().getFullYear();
   const nextNum = String(db.actions.length + 1).padStart(3, '0');
   const autoNum = `ACT-${year}-${nextNum}`;
@@ -434,9 +431,9 @@ app.post('/api/actions', (req, res) => {
   };
 
   db.actions.unshift(newAction);
-  writeDB(db);
+  await writeDB(db);
 
-  addAuditLog(
+  await addAuditLog(
     req.body.createdBy || 'Sophie Martin',
     req.body.createdByRole || 'Prod',
     'Création',
@@ -447,8 +444,8 @@ app.post('/api/actions', (req, res) => {
   res.status(201).json(newAction);
 });
 
-app.put('/api/actions/:id', (req, res) => {
-  const db = readDB();
+app.put('/api/actions/:id', async (req, res) => {
+  const db = await readDB();
   const { id } = req.params;
   const index = db.actions.findIndex(a => a.id === id);
   if (index !== -1) {
@@ -468,13 +465,13 @@ app.put('/api/actions/:id', (req, res) => {
       completionPercentage: completion
     };
 
-    writeDB(db);
+    await writeDB(db);
 
     const user = req.body.modifiedBy || 'Marc Lemaire';
     const role = req.body.modifiedByRole || 'DI';
 
     if (prevStatus !== db.actions[index].status) {
-      addAuditLog(
+      await addAuditLog(
         user,
         role,
         'Statut Action',
@@ -482,7 +479,7 @@ app.put('/api/actions/:id', (req, res) => {
         `Action [${db.actions[index].autoNum}] passée de [${prevStatus}] à [${db.actions[index].status}]`
       );
     } else {
-      addAuditLog(
+      await addAuditLog(
         user,
         role,
         'Modification Action',
@@ -498,8 +495,8 @@ app.put('/api/actions/:id', (req, res) => {
 });
 
 // Add comment to Action
-app.post('/api/actions/:id/comments', (req, res) => {
-  const db = readDB();
+app.post('/api/actions/:id/comments', async (req, res) => {
+  const db = await readDB();
   const { id } = req.params;
   const index = db.actions.findIndex(a => a.id === id);
   if (index !== -1) {
@@ -511,8 +508,8 @@ app.post('/api/actions/:id/comments', (req, res) => {
       date: new Date().toISOString()
     };
     db.actions[index].comments.push(newComment);
-    writeDB(db);
-    addAuditLog(
+    await writeDB(db);
+    await addAuditLog(
       req.body.user,
       req.body.role,
       'Nouveau Commentaire',
@@ -526,18 +523,18 @@ app.post('/api/actions/:id/comments', (req, res) => {
 });
 
 // 4. Meetings orchestrator
-app.get('/api/meetings', (req, res) => {
-  const db = readDB();
+app.get('/api/meetings', async (req, res) => {
+  const db = await readDB();
   res.json(db.meetings);
 });
 
-app.put('/api/meetings/:id', (req, res) => {
-  const db = readDB();
+app.put('/api/meetings/:id', async (req, res) => {
+  const db = await readDB();
   const { id } = req.params;
   const index = db.meetings.findIndex(m => m.id === id);
   if (index !== -1) {
     db.meetings[index] = { ...db.meetings[index], ...req.body };
-    writeDB(db);
+    await writeDB(db);
     res.json(db.meetings[index]);
   } else {
     res.status(404).json({ error: 'Réunion non trouvée' });
@@ -545,8 +542,8 @@ app.put('/api/meetings/:id', (req, res) => {
 });
 
 // Create new review meeting
-app.post('/api/meetings', (req, res) => {
-  const db = readDB();
+app.post('/api/meetings', async (req, res) => {
+  const db = await readDB();
   
   // Close any ongoing meeting first
   db.meetings.forEach(m => {
@@ -575,9 +572,9 @@ app.post('/api/meetings', (req, res) => {
   };
 
   db.meetings.unshift(newMeeting);
-  writeDB(db);
+  await writeDB(db);
 
-  addAuditLog(
+  await addAuditLog(
     req.body.createdBy || 'Marc Lemaire',
     'DI',
     'Début Réunion',
@@ -589,19 +586,19 @@ app.post('/api/meetings', (req, res) => {
 });
 
 // 5. Audit logs list
-app.get('/api/logs', (req, res) => {
-  const db = readDB();
+app.get('/api/logs', async (req, res) => {
+  const db = await readDB();
   res.json(db.logs);
 });
 
 // 5b. Attendance API routes
-app.get('/api/attendance', (req, res) => {
-  const db = readDB();
+app.get('/api/attendance', async (req, res) => {
+  const db = await readDB();
   res.json(db.attendance || []);
 });
 
-app.post('/api/attendance', (req, res) => {
-  const db = readDB();
+app.post('/api/attendance', async (req, res) => {
+  const db = await readDB();
   const { week, records } = req.body;
 
   if (!week || !records) {
@@ -644,7 +641,7 @@ app.post('/api/attendance', (req, res) => {
     }
     
     // Log KPI change
-    addAuditLog(
+    await addAuditLog(
       'Système (Auto)',
       'Admin',
       'Calcul Présence',
@@ -653,7 +650,7 @@ app.post('/api/attendance', (req, res) => {
     );
   }
 
-  writeDB(db);
+  await writeDB(db);
 
   res.json({
     success: true,
@@ -664,21 +661,21 @@ app.post('/api/attendance', (req, res) => {
 });
 
 // 6. SQL Server Sync Simulator
-app.get('/api/sql-config', (req, res) => {
-  const db = readDB();
+app.get('/api/sql-config', async (req, res) => {
+  const db = await readDB();
   res.json(db.sqlConfig);
 });
 
-app.put('/api/sql-config', (req, res) => {
-  const db = readDB();
+app.put('/api/sql-config', async (req, res) => {
+  const db = await readDB();
   db.sqlConfig = { ...db.sqlConfig, ...req.body };
-  writeDB(db);
+  await writeDB(db);
   res.json(db.sqlConfig);
 });
 
 // Execute SQL Server Sync (Demonstration)
-app.post('/api/sql-sync', (req, res) => {
-  const db = readDB();
+app.post('/api/sql-sync', async (req, res) => {
+  const db = await readDB();
   
   // Update SQL config status
   db.sqlConfig.isConnected = true;
@@ -723,9 +720,9 @@ app.post('/api/sql-sync', (req, res) => {
     }
   });
 
-  writeDB(db);
+  await writeDB(db);
 
-  addAuditLog(
+  await addAuditLog(
     req.body.user || 'Système (Auto)',
     req.body.role || 'Admin',
     'Synchronisation',
@@ -737,8 +734,8 @@ app.post('/api/sql-sync', (req, res) => {
 });
 
 // 7. Simulated Excel Import
-app.post('/api/excel-import', (req, res) => {
-  const db = readDB();
+app.post('/api/excel-import', async (req, res) => {
+  const db = await readDB();
   const { fileName, items } = req.body;
 
   if (!items || !Array.isArray(items)) {
@@ -756,9 +753,9 @@ app.post('/api/excel-import', (req, res) => {
     }
   });
 
-  writeDB(db);
+  await writeDB(db);
 
-  addAuditLog(
+  await addAuditLog(
     req.body.user || 'Administrateur',
     req.body.role || 'Admin',
     'Importation Excel',
@@ -1001,7 +998,7 @@ function getFallbackMeetingSummary(weekNumber: number) {
 
 // Gemini API Route 1: Analyze current plant performance to suggest bottleneck solutions
 app.post('/api/ai/analyze-performance', async (req, res) => {
-  const db = readDB();
+  const db = await readDB();
   const redKpis = db.kpis.filter(k => k.status === 'Red');
   const orangeKpis = db.kpis.filter(k => k.status === 'Orange');
   const activeActions = db.actions.filter(a => a.status !== 'Clôturé');
@@ -1057,7 +1054,7 @@ Tu dois renvoyer exactement cet objet JSON de structure :
 // Gemini API Route 2: Generate a beautiful meeting summary report
 app.post('/api/ai/meeting-summary', async (req, res) => {
   const { meetingId } = req.body;
-  const db = readDB();
+  const db = await readDB();
   const meeting = db.meetings.find(m => m.id === meetingId);
 
   if (!meeting) {
@@ -1121,6 +1118,9 @@ Tu dois renvoyer exactement cet objet JSON de structure :
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    // Dynamically imported so 'vite' (a devDependency) never has to be bundled
+    // into the Vercel serverless function, which only runs in production mode.
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa'
@@ -1129,7 +1129,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', async (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
@@ -1139,4 +1139,10 @@ async function startServer() {
   });
 }
 
-startServer();
+// On Vercel, the platform serves the built frontend and invokes this file as a
+// serverless function per /api/* request — it must not bind a port or run Vite.
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

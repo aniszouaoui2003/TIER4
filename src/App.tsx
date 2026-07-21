@@ -168,6 +168,20 @@ export default function App() {
     }
   };
 
+  // 3b. DELETE ACTION
+  const handleDeleteAction = async (id: string) => {
+    if (!currentUser) return;
+    try {
+      const response = await fetch(`/api/actions/${id}?user=${encodeURIComponent(currentUser.name)}&role=${encodeURIComponent(currentUser.role)}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Échec de suppression de l\'action');
+      await refreshActionsAndLogs();
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    }
+  };
+
   // 4. UPDATE MEETING STEPS OR NOTES
   const handleUpdateMeeting = async (id: string, updatedFields: Partial<Meeting>) => {
     try {
@@ -440,6 +454,7 @@ export default function App() {
               actions={actions}
               onAddAction={handleAddAction}
               onUpdateAction={handleUpdateAction}
+              onDeleteAction={handleDeleteAction}
               onAddComment={handleAddActionComment}
               currentUser={currentUser}
             />

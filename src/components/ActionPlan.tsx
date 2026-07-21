@@ -28,6 +28,7 @@ interface ActionPlanProps {
   actions: Action[];
   onAddAction: (action: Omit<Action, 'id' | 'autoNum' | 'date' | 'comments' | 'attachments'>) => Promise<void>;
   onUpdateAction: (id: string, updated: Partial<Action>) => Promise<void>;
+  onDeleteAction: (id: string) => Promise<void>;
   onAddComment: (actionId: string, text: string) => Promise<void>;
   currentUser: User;
 }
@@ -36,6 +37,7 @@ export default function ActionPlan({
   actions,
   onAddAction,
   onUpdateAction,
+  onDeleteAction,
   onAddComment,
   currentUser
 }: ActionPlanProps) {
@@ -129,6 +131,15 @@ export default function ActionPlan({
     if (updatedAction) {
       setSelectedAction(updatedAction);
     }
+  };
+
+  // Delete action from detail view
+  const handleDeleteAction = async () => {
+    if (!selectedAction) return;
+    if (!window.confirm(`Supprimer définitivement l'action [${selectedAction.autoNum}] ? Cette opération est irréversible.`)) return;
+    await onDeleteAction(selectedAction.id);
+    setIsDetailOpen(false);
+    setSelectedAction(null);
   };
 
   // Filter actions based on states
@@ -579,9 +590,20 @@ export default function ActionPlan({
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Date : {selectedAction.date}</span>
               </div>
-              <button onClick={() => { setIsDetailOpen(false); setSelectedAction(null); }} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-400">
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                {currentUser.role !== 'Viewer' && (
+                  <button
+                    onClick={handleDeleteAction}
+                    title="Supprimer l'action"
+                    className="p-1.5 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+                <button onClick={() => { setIsDetailOpen(false); setSelectedAction(null); }} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Content Body */}

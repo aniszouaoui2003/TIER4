@@ -494,6 +494,28 @@ app.put('/api/actions/:id', async (req, res) => {
   }
 });
 
+// Delete Action
+app.delete('/api/actions/:id', async (req, res) => {
+  const db = await readDB();
+  const { id } = req.params;
+  const index = db.actions.findIndex(a => a.id === id);
+  if (index !== -1) {
+    const deleted = db.actions[index];
+    db.actions.splice(index, 1);
+    await writeDB(db);
+    await addAuditLog(
+      (req.query.user as string) || 'Administrateur',
+      (req.query.role as string) || 'Admin',
+      'Suppression',
+      'Plan d\'actions',
+      `Suppression de l'action [${deleted.autoNum}] : ${deleted.subject}`
+    );
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Action non trouvée' });
+  }
+});
+
 // Add comment to Action
 app.post('/api/actions/:id/comments', async (req, res) => {
   const db = await readDB();

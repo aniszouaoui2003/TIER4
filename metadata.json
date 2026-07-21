@@ -1,5 +1,5 @@
 {
-  "name": "Pilotage Tier 4 Usine",
+  "name": "TIER4 Meeting",
   "description": "Application industrielle de pilotage des revues hebdomadaires Tier 4 d'une usine (SQCDP, Plans d'actions, Ordre du jour de réunion, et Synchronisation SQL Server)",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -81,7 +81,7 @@ export default function Sidebar({
             Officeplast
           </h1>
           <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500 font-semibold uppercase">
-            Pilotage Tier 4
+            TIER4 Meeting
           </p>
         </div>
       </div>

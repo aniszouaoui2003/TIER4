@@ -41,7 +41,7 @@ import {
   INITIAL_AUDIT_LOGS,
   INITIAL_USERS,
   INITIAL_ATTENDANCE
-} from './src/data/mockData';
+} from './src/data/mockData.js';
 
 // Helper to initialize and retrieve database
 interface DataStoreSchema {

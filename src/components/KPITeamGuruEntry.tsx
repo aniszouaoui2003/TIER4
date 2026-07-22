@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Save,
   RotateCcw,
@@ -77,6 +77,19 @@ export default function KPITeamGuruEntry({
   const [localEdits, setLocalEdits] = useState<Record<string, Partial<KPI>>>({});
   const [saving, setSaving] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // The right panel's header must stay sticky-top relative to the page scroller, but
+  // `overflow-x: auto` on its scrollable body forces `overflow-y` to a non-visible value too
+  // (a CSS spec quirk), which would break that stickiness if the header lived inside the same
+  // scrolling box. Instead the header is a separate sticky element whose content is shifted via
+  // a direct style write (not React state, to avoid re-rendering on every scroll tick) to mirror
+  // the body's horizontal scroll position.
+  const rightHeaderInnerRef = useRef<HTMLDivElement>(null);
+  const handleRightPanelScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (rightHeaderInnerRef.current) {
+      rightHeaderInnerRef.current.style.transform = `translateX(-${e.currentTarget.scrollLeft}px)`;
+    }
+  };
 
   // The app's mock "today" sits in Semaine 26 (late June) of the current exercise year
   const CURRENT_YEAR = 2026;
@@ -597,7 +610,16 @@ export default function KPITeamGuruEntry({
 
   const modifiedCount = Object.keys(localEdits).length;
 
-  // Renders one grid row for a KPI: its total, or one site's own figures, per the site view picker
+  // Explicit pixel widths for the two independently-scrolling panels (see renderRow for why).
+  const FROZEN_COLUMNS = '112px 224px 56px 64px 80px';
+  const periodColWidth = periodMode === 'monthly' ? 80 : 64;
+  const periodCount = periodMode === 'monthly' ? MONTH_WEEK_RANGES.length : allWeeks.length;
+
+  // Renders one grid row for a KPI: its total, or one site's own figures, per the site view picker.
+  // Returns two independent cell groups — `left` (the frozen Catégorie→VTD columns, rendered in a
+  // panel that never scrolls horizontally) and `right` (the annual period columns, rendered in a
+  // separately horizontally-scrolling panel) — since CSS Grid items can't reliably stick beyond
+  // their own grid cell, the only robust cross-browser way to freeze columns is to not scroll them.
   const renderRow = (k: KPI, rowType: RowType, liveK: KPI, isFormula: boolean, isLowerBetterRow: boolean, isModified: boolean, bothSites: boolean) => {
     const getWeekVal = (w: number) => getRowWeekValue(k, rowType, w);
     const vtd = getVTD(getWeekVal);
@@ -613,31 +635,24 @@ export default function KPITeamGuruEntry({
     // In the "Total Site" view, a site-tracked KPI's Total row starts a group of 3 — mark it
     const startsGroup = rowType === 'total' && bothSites && siteView === 'total';
     const rowTint = rowType === 'site1' ? 'bg-blue-50/20 dark:bg-blue-950/5' : rowType === 'site2' ? 'bg-purple-50/20 dark:bg-purple-950/5' : '';
-    // Frozen columns need an opaque (non-translucent) background so horizontally-scrolled
-    // columns don't show through as they pass underneath.
-    const stickyBg = isModified
-      ? 'bg-blue-50 dark:bg-blue-950'
-      : rowType === 'site1' ? 'bg-blue-50 dark:bg-blue-950'
-      : rowType === 'site2' ? 'bg-purple-50 dark:bg-purple-950'
-      : 'bg-white dark:bg-slate-900';
-    const stickyCol = `sticky z-10 ${stickyBg}`;
+    const rowBg = isModified
+      ? 'bg-blue-50/20 dark:bg-blue-950/5'
+      : rowTint;
+    const rowClass = `grid hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all border-b border-slate-150 dark:border-slate-800 text-xs min-h-[52px] ${rowBg} ${
+      startsGroup ? 'border-t-2 border-t-slate-200 dark:border-t-slate-800' : ''
+    }`;
 
-    return (
-      <tr
-        key={`${k.id}-${rowType}`}
-        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all ${rowTint} ${isModified ? 'bg-blue-50/20 dark:bg-blue-950/5' : ''} ${
-          startsGroup ? 'border-t-2 border-slate-200 dark:border-slate-800' : ''
-        }`}
-      >
+    const left = (
+      <div key={`${k.id}-${rowType}-l`} className={rowClass} style={{ gridTemplateColumns: FROZEN_COLUMNS }}>
         {/* 1. Category Badge */}
-        <td className={`py-3 px-4 font-medium ${stickyCol} left-0`}>
+        <div className="py-3 px-4 font-medium flex items-center">
           <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full border ${CATEGORY_BADGES[k.category] || 'bg-slate-100 text-slate-800 border-slate-200'}`}>
             {k.category}
           </span>
-        </td>
+        </div>
 
         {/* 2. Name & Owner */}
-        <td className={`py-2.5 px-4 ${stickyCol} left-28`}>
+        <div className="py-2.5 px-4">
           <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug flex flex-wrap items-center gap-1.5">
             {rowType === 'total' && bothSites && <Sigma className="w-3 h-3 text-slate-400 shrink-0" title="Total = Site 1 + Site 2" />}
             <span>{k.name}</span>
@@ -666,15 +681,15 @@ export default function KPITeamGuruEntry({
               HQ : {k.officeplastOwner}
             </span>
           )}
-        </td>
+        </div>
 
         {/* 3. Unit */}
-        <td className={`py-2.5 px-2 text-center text-slate-400 dark:text-slate-500 font-mono font-bold ${stickyCol} left-[336px]`}>
+        <div className="py-2.5 px-2 text-center text-slate-400 dark:text-slate-500 font-mono font-bold flex items-center justify-center">
           {k.unit}
-        </td>
+        </div>
 
         {/* 4. Target (editable only on the Total row) */}
-        <td className={`py-2.5 px-3 text-center ${stickyCol} left-[392px]`}>
+        <div className="py-2.5 px-3 text-center flex items-center justify-center">
           {rowType === 'total' ? (
             <input
               type="text"
@@ -685,10 +700,10 @@ export default function KPITeamGuruEntry({
           ) : (
             <span className="text-[10px] text-slate-400 dark:text-slate-600 font-mono">{liveK.target}</span>
           )}
-        </td>
+        </div>
 
         {/* 5. Value-To-Date summary cell */}
-        <td className={`py-2.5 px-2 text-center sticky z-10 left-[456px] border-l-2 border-r-2 border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800`}>
+        <div className="py-2.5 px-2 text-center flex items-center justify-center border-l-2 border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/30">
           {vtd === null ? (
             <span className="text-[11px] text-slate-300 dark:text-slate-600 font-mono">—</span>
           ) : (
@@ -697,9 +712,13 @@ export default function KPITeamGuruEntry({
               <div className="text-[9px] opacity-60 leading-none mt-0.5">cible {liveK.target}</div>
             </div>
           )}
-        </td>
+        </div>
+      </div>
+    );
 
-        {/* 6. Annual period columns: monthly rollup (editable override) or weekly detail (editable) */}
+    const periodGridColumns = `repeat(${periodCount}, ${periodColWidth}px)`;
+    const right = (
+      <div key={`${k.id}-${rowType}-r`} className={rowClass} style={{ gridTemplateColumns: periodGridColumns }}>
         {periodMode === 'monthly' ? (
           MONTH_WEEK_RANGES.map((m, idx) => {
             const effective = getEffectiveMonthValue(k, rowType, idx);
@@ -707,9 +726,9 @@ export default function KPITeamGuruEntry({
             const status = effective.value !== null ? evaluateStatus(effective.value, liveK.target, k.name, k.category) : null;
 
             return (
-              <td
+              <div
                 key={m.name}
-                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center ${
+                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center flex items-center justify-center ${
                   idx === currentMonthIndex ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
                 }`}
               >
@@ -741,7 +760,7 @@ export default function KPITeamGuruEntry({
                     </span>
                   )}
                 </div>
-              </td>
+              </div>
             );
           })
         ) : (
@@ -752,9 +771,9 @@ export default function KPITeamGuruEntry({
             const label = `Semaine ${w}`;
 
             return (
-              <td
+              <div
                 key={w}
-                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center ${
+                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center flex items-center justify-center ${
                   w === CURRENT_WEEK ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
                 }`}
               >
@@ -783,12 +802,14 @@ export default function KPITeamGuruEntry({
                     </span>
                   )}
                 </div>
-              </td>
+              </div>
             );
           })
         )}
-      </tr>
+      </div>
     );
+
+    return { left, right };
   };
 
   return (
@@ -953,7 +974,7 @@ export default function KPITeamGuruEntry({
       </div>
 
       {/* Main Matrice Table Area */}
-      <div className="flex-1 overflow-auto p-6 teamguru-scroll">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
 
         {filteredKPIs.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center max-w-md mx-auto my-12 shadow-sm">
@@ -973,75 +994,84 @@ export default function KPITeamGuruEntry({
               Réinitialiser tous les filtres
             </button>
           </div>
-        ) : (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-            <table className="min-w-full text-left border-collapse table-fixed" id="teamguru-grid-table">
+        ) : (() => {
+          // Build every row once; the left (frozen) and right (scrollable) halves are rendered
+          // into two side-by-side panels sharing this one vertical scroller, so they can never
+          // drift out of sync vertically while the right panel scrolls horizontally on its own.
+          const rows = filteredKPIs.flatMap(k => {
+            const liveK = getLiveKPI(k);
+            const isModified = !!localEdits[k.id];
+            const isFormula = FORMULA_KPI_IDS.includes(k.id);
+            const isLowerBetterRow = isLowerBetterMetric(k.name, k.category);
+            const bothSites = !!(k.site1Checked && k.site2Checked);
 
-              {/* Table Headers */}
-              <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  <th className="py-3 px-4 w-28 sticky top-0 left-0 z-30 bg-slate-100 dark:bg-slate-800">Catégorie</th>
-                  <th className="py-3 px-4 w-56 sticky top-0 left-28 z-30 bg-slate-100 dark:bg-slate-800">Indicateur & Responsable</th>
-                  <th className="py-3 px-2 w-14 text-center sticky top-0 left-[336px] z-30 bg-slate-100 dark:bg-slate-800">Unité</th>
-                  <th className="py-3 px-3 w-16 text-center sticky top-0 left-[392px] z-30 bg-slate-100 dark:bg-slate-800">Target</th>
+            const rowTypes: RowType[] =
+              siteView === 'site1' ? [k.site1Checked ? 'site1' : 'total'] :
+              siteView === 'site2' ? [k.site2Checked ? 'site2' : 'total'] :
+              ['total', ...(k.site1Checked ? (['site1'] as RowType[]) : []), ...(k.site2Checked ? (['site2'] as RowType[]) : [])];
 
-                  <th className="py-3 px-2 w-20 text-center sticky top-0 left-[456px] z-30 border-l-2 border-r-2 border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800">
+            return rowTypes.map(rowType => renderRow(k, rowType, liveK, isFormula, isLowerBetterRow, isModified, bothSites));
+          });
+
+          const periodGridColumns = `repeat(${periodCount}, ${periodColWidth}px)`;
+          const headerRowCls = 'grid sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider';
+
+          return (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs flex" id="teamguru-grid-table">
+
+              {/* Left panel: frozen Catégorie → VTD columns. Never scrolls horizontally. */}
+              <div className="shrink-0" style={{ width: 536 }}>
+                <div className={`${headerRowCls} rounded-tl-xl`} style={{ gridTemplateColumns: FROZEN_COLUMNS }}>
+                  <div className="py-3 px-4 flex items-center">Catégorie</div>
+                  <div className="py-3 px-4 flex items-center">Indicateur & Responsable</div>
+                  <div className="py-3 px-2 text-center flex items-center justify-center">Unité</div>
+                  <div className="py-3 px-3 text-center flex items-center justify-center">Target</div>
+                  <div className="py-3 px-2 text-center flex items-center justify-center border-l-2 border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800">
                     VTD
-                  </th>
+                  </div>
+                </div>
+                {rows.map(r => r.left)}
+              </div>
 
-                  {periodMode === 'monthly' ? (
-                    MONTH_WEEK_RANGES.map((m, idx) => (
-                      <th
-                        key={m.name}
-                        className={`py-3 px-2 w-20 text-center sticky top-0 z-20 border-l border-slate-200 dark:border-slate-800 ${
-                          idx === currentMonthIndex ? 'bg-blue-100 dark:bg-blue-950' : 'bg-slate-100 dark:bg-slate-800'
-                        }`}
-                      >
-                        {m.name} {idx === currentMonthIndex ? '🔥' : ''}
-                      </th>
-                    ))
-                  ) : (
-                    allWeeks.map(w => (
-                      <th
-                        key={w}
-                        className={`py-3 px-2 w-16 text-center sticky top-0 z-20 border-l border-slate-200 dark:border-slate-800 ${
-                          w === CURRENT_WEEK ? 'bg-blue-100 dark:bg-blue-950' : 'bg-slate-100 dark:bg-slate-800'
-                        }`}
-                      >
-                        S{w} {w === CURRENT_WEEK ? '🔥' : ''}
-                      </th>
-                    ))
-                  )}
-                </tr>
-              </thead>
+              {/* Right panel: annual period columns. The header is a separate sticky-top element
+                  (overflow-x-auto on the body below would otherwise break its stickiness — see
+                  handleRightPanelScroll), shifted in sync with the body's real horizontal scroll. */}
+              <div className="flex-1 min-w-0">
+                <div className="sticky top-0 z-20 overflow-hidden rounded-tr-xl">
+                  <div ref={rightHeaderInnerRef} className={headerRowCls} style={{ gridTemplateColumns: periodGridColumns }}>
+                    {periodMode === 'monthly' ? (
+                      MONTH_WEEK_RANGES.map((m, idx) => (
+                        <div
+                          key={m.name}
+                          className={`py-3 px-2 text-center flex items-center justify-center border-l border-slate-200 dark:border-slate-800 ${
+                            idx === currentMonthIndex ? 'bg-blue-100 dark:bg-blue-950' : ''
+                          }`}
+                        >
+                          {m.name} {idx === currentMonthIndex ? '🔥' : ''}
+                        </div>
+                      ))
+                    ) : (
+                      allWeeks.map(w => (
+                        <div
+                          key={w}
+                          className={`py-3 px-2 text-center flex items-center justify-center border-l border-slate-200 dark:border-slate-800 ${
+                            w === CURRENT_WEEK ? 'bg-blue-100 dark:bg-blue-950' : ''
+                          }`}
+                        >
+                          S{w} {w === CURRENT_WEEK ? '🔥' : ''}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="overflow-x-auto teamguru-scroll rounded-br-xl" onScroll={handleRightPanelScroll}>
+                  {rows.map(r => r.right)}
+                </div>
+              </div>
 
-              {/* Table Body */}
-              <tbody className="divide-y divide-slate-150 dark:divide-slate-800 text-xs" id="teamguru-grid-tbody">
-                {filteredKPIs.map(k => {
-                  const liveK = getLiveKPI(k);
-                  const isModified = !!localEdits[k.id];
-                  const isFormula = FORMULA_KPI_IDS.includes(k.id);
-                  const isLowerBetterRow = isLowerBetterMetric(k.name, k.category);
-                  const bothSites = !!(k.site1Checked && k.site2Checked);
-
-                  // "Total Site" shows the Total plus both site breakdowns together; picking a
-                  // specific site shows only that row (falling back to Total if untracked there)
-                  const rowTypes: RowType[] =
-                    siteView === 'site1' ? [k.site1Checked ? 'site1' : 'total'] :
-                    siteView === 'site2' ? [k.site2Checked ? 'site2' : 'total'] :
-                    ['total', ...(k.site1Checked ? (['site1'] as RowType[]) : []), ...(k.site2Checked ? (['site2'] as RowType[]) : [])];
-
-                  return (
-                    <React.Fragment key={k.id}>
-                      {rowTypes.map(rowType => renderRow(k, rowType, liveK, isFormula, isLowerBetterRow, isModified, bothSites))}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-
-            </table>
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
       </div>
 

@@ -68,8 +68,9 @@ export default function KPITeamGuruEntry({
 
   // Annual period axis: monthly rollup (read-only) or weekly detail (editable)
   const [periodMode, setPeriodMode] = useState<'monthly' | 'weekly'>('monthly');
-  // Whether to expand each KPI into its Site 1 / Site 2 editable sub-rows
-  const [showSiteRows, setShowSiteRows] = useState<boolean>(true);
+  // Which single row is shown per KPI: the total, or one site's own figures.
+  // KPIs that aren't tracked for the selected site always fall back to their Total row.
+  const [siteView, setSiteView] = useState<'total' | 'site1' | 'site2'>('total');
 
   // Local state to store edits before saving
   // Map of kpiId -> KPI edits
@@ -596,77 +597,66 @@ export default function KPITeamGuruEntry({
 
   const modifiedCount = Object.keys(localEdits).length;
 
-  // Renders one grid row: the KPI total, or one of its site sub-rows
+  // Renders one grid row for a KPI: its total, or one site's own figures, per the site view picker
   const renderRow = (k: KPI, rowType: RowType, liveK: KPI, isFormula: boolean, isLowerBetterRow: boolean, isModified: boolean, bothSites: boolean) => {
     const getWeekVal = (w: number) => getRowWeekValue(k, rowType, w);
     const vtd = getVTD(getWeekVal);
     // Total is editable only when the KPI isn't formula-derived and isn't summed from two sites
     const editable = rowType === 'total' ? !isFormula && !bothSites : !isFormula;
 
-    const rowLabel = rowType === 'total'
-      ? null
-      : rowType === 'site1'
-        ? { icon: <Factory className="w-3 h-3 text-blue-500 shrink-0" />, text: `Site 1${k.site1Owner ? ` — ${k.site1Owner}` : ''}`, tint: 'bg-blue-50/30 dark:bg-blue-950/10' }
-        : { icon: <Factory className="w-3 h-3 text-purple-500 shrink-0" />, text: `Site 2${k.site2Owner ? ` — ${k.site2Owner}` : ''}`, tint: 'bg-purple-50/30 dark:bg-purple-950/10' };
+    const siteBadge = rowType === 'site1'
+      ? { text: `Site 1${k.site1Owner ? ` — ${k.site1Owner}` : ''}`, cls: 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-100 dark:border-blue-900/50' }
+      : rowType === 'site2'
+        ? { text: `Site 2${k.site2Owner ? ` — ${k.site2Owner}` : ''}`, cls: 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/50' }
+        : null;
 
     return (
       <tr
         key={`${k.id}-${rowType}`}
-        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all ${
-          rowType === 'total' ? '' : `${rowLabel?.tint} text-[11px]`
-        } ${isModified ? 'bg-blue-50/20 dark:bg-blue-950/5' : ''} ${
-          rowType === 'total' && bothSites ? 'border-t-2 border-slate-200 dark:border-slate-800' : ''
-        }`}
+        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all ${isModified ? 'bg-blue-50/20 dark:bg-blue-950/5' : ''}`}
       >
         {/* 1. Category Badge */}
         <td className="py-3 px-4 font-medium">
-          {rowType === 'total' ? (
-            <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full border ${CATEGORY_BADGES[k.category] || 'bg-slate-100 text-slate-800 border-slate-200'}`}>
-              {k.category}
-            </span>
-          ) : null}
+          <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full border ${CATEGORY_BADGES[k.category] || 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+            {k.category}
+          </span>
         </td>
 
         {/* 2. Name & Owner */}
         <td className="py-2.5 px-4">
-          {rowType === 'total' ? (
-            <>
-              <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug flex flex-wrap items-center gap-1.5">
-                {bothSites && <Sigma className="w-3 h-3 text-slate-400 shrink-0" title="Total = Site 1 + Site 2" />}
-                <span>{k.name}</span>
-                {isFormula && (
-                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/50 dark:border-blue-900/40 text-[9px] font-bold rounded">
-                    <Cpu className="w-2.5 h-2.5 text-blue-500" /> Auto
-                  </span>
-                )}
-                {isModified && (
-                  <span className="inline-flex items-center px-1 text-[9px] font-extrabold text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950/60 rounded">
-                    Modifié
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
-                <UserIcon className="w-3 h-3 text-blue-500 shrink-0" />
-                <span>Fonction : {k.owner}</span>
-              </div>
-              {k.officeplastOwner && (
-                <span className="inline-flex items-center mt-1 px-1.5 py-0.5 text-[9px] bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50 rounded font-medium font-mono">
-                  HQ : {k.officeplastOwner}
-                </span>
-              )}
-            </>
-          ) : (
-            <div className="pl-4 flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-semibold">
-              <span className="text-slate-300 dark:text-slate-700">↳</span>
-              {rowLabel!.icon}
-              <span>{rowLabel!.text}</span>
-            </div>
+          <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug flex flex-wrap items-center gap-1.5">
+            {rowType === 'total' && bothSites && <Sigma className="w-3 h-3 text-slate-400 shrink-0" title="Total = Site 1 + Site 2" />}
+            <span>{k.name}</span>
+            {siteBadge && (
+              <span className={`inline-flex items-center px-1.5 py-0.5 text-[9px] border rounded font-medium ${siteBadge.cls}`}>
+                <Factory className="w-2.5 h-2.5 mr-0.5" /> {siteBadge.text}
+              </span>
+            )}
+            {isFormula && (
+              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/50 dark:border-blue-900/40 text-[9px] font-bold rounded">
+                <Cpu className="w-2.5 h-2.5 text-blue-500" /> Auto
+              </span>
+            )}
+            {isModified && (
+              <span className="inline-flex items-center px-1 text-[9px] font-extrabold text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950/60 rounded">
+                Modifié
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+            <UserIcon className="w-3 h-3 text-blue-500 shrink-0" />
+            <span>Fonction : {k.owner}</span>
+          </div>
+          {rowType === 'total' && k.officeplastOwner && (
+            <span className="inline-flex items-center mt-1 px-1.5 py-0.5 text-[9px] bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50 rounded font-medium font-mono">
+              HQ : {k.officeplastOwner}
+            </span>
           )}
         </td>
 
         {/* 3. Unit */}
         <td className="py-2.5 px-2 text-center text-slate-400 dark:text-slate-500 font-mono font-bold">
-          {rowType === 'total' ? k.unit : ''}
+          {k.unit}
         </td>
 
         {/* 4. Target (editable only on the Total row) */}
@@ -897,24 +887,18 @@ export default function KPITeamGuruEntry({
         {/* Advanced columns views and search */}
         <div className="flex items-center gap-3 flex-wrap">
 
-          {/* Total-only vs. per-site rows toggler */}
-          <div className="flex bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs">
-            <button
-              onClick={() => setShowSiteRows(false)}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-                !showSiteRows ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
-              }`}
+          {/* Site view picker: Total, or one site's own figures */}
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 rounded-lg pl-2 pr-1 py-0.5 text-xs">
+            <Factory className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <select
+              value={siteView}
+              onChange={(e) => setSiteView(e.target.value as 'total' | 'site1' | 'site2')}
+              className="bg-transparent py-1 pr-1 font-medium text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
             >
-              Total Usine
-            </button>
-            <button
-              onClick={() => setShowSiteRows(true)}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-                showSiteRows ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
-              }`}
-            >
-              Détail par Site
-            </button>
+              <option value="total">Total Site</option>
+              <option value="site1">Site 1</option>
+              <option value="site2">Site 2</option>
+            </select>
           </div>
 
           {/* Monthly / Weekly period toggler (TeamGuru-style annual view) */}
@@ -1026,17 +1010,13 @@ export default function KPITeamGuruEntry({
                   const isLowerBetterRow = isLowerBetterMetric(k.name, k.category);
                   const bothSites = !!(k.site1Checked && k.site2Checked);
 
-                  const rowTypes: RowType[] = [
-                    'total',
-                    ...(showSiteRows && k.site1Checked ? (['site1'] as RowType[]) : []),
-                    ...(showSiteRows && k.site2Checked ? (['site2'] as RowType[]) : [])
-                  ];
+                  // KPIs not tracked for the selected site simply show their Total row instead
+                  const rowType: RowType =
+                    siteView === 'site1' ? (k.site1Checked ? 'site1' : 'total') :
+                    siteView === 'site2' ? (k.site2Checked ? 'site2' : 'total') :
+                    'total';
 
-                  return (
-                    <React.Fragment key={k.id}>
-                      {rowTypes.map(rowType => renderRow(k, rowType, liveK, isFormula, isLowerBetterRow, isModified, bothSites))}
-                    </React.Fragment>
-                  );
+                  return renderRow(k, rowType, liveK, isFormula, isLowerBetterRow, isModified, bothSites);
                 })}
               </tbody>
 

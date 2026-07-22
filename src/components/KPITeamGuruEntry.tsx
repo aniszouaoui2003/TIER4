@@ -994,7 +994,11 @@ export default function KPITeamGuruEntry({
       </div>
 
       {/* Main Matrice Table Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
+      {/* No top padding here: padding on a scrolling ancestor is itself scrollable space, so
+          content can visibly pass through that gap just before tucking behind a sticky header
+          at top:0 — the top spacing is added as margin on the inner content instead, which
+          isn't part of the scroll container's own box and can't create that gap. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 pb-6">
 
         {filteredKPIs.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center max-w-md mx-auto my-12 shadow-sm">
@@ -1037,7 +1041,7 @@ export default function KPITeamGuruEntry({
           const headerRowCls = 'grid sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider';
 
           return (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs flex" id="teamguru-grid-table">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs flex mt-6" id="teamguru-grid-table">
 
               {/* Left panel: frozen Catégorie → VTD columns. Never scrolls horizontally. */}
               <div className="shrink-0" style={{ width: 536 }}>

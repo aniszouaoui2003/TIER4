@@ -35,10 +35,20 @@ interface AttendanceTrackerProps {
   onRefreshData: () => Promise<void>;
 }
 
+// Standard ISO-8601 week number for a given date (week containing that date's Thursday).
+const getISOWeek = (date: Date): number => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+};
+
 // The app's single modeled exercise year, and its 52-week axis grouped into 12 months
-// (4 or 5 weeks each, summing to 52) — same convention used across the KPI grid.
+// (4 or 5 weeks each, summing to 52) — same convention used across the KPI grid. The
+// "current" week/month is today's real date, not a value frozen at the demo's seed data.
 const CURRENT_YEAR = 2026;
-const CURRENT_WEEK = 26;
+const CURRENT_WEEK = getISOWeek(new Date());
 const MONTH_NAMES = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 const WEEKS_PER_MONTH = [4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4, 5];
 const MONTH_WEEK_RANGES: { name: string; weeks: number[] }[] = (() => {

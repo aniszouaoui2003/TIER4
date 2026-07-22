@@ -168,6 +168,17 @@ export default function KPITeamGuruEntry({
     return edits[field] !== undefined ? Number(edits[field]) : (k[field] ?? 0);
   };
 
+  // Older persisted KPI records predate site1History/site2History and only ever carried a
+  // current-week snapshot (site1Value/site2Value). Treat that snapshot as an implicit
+  // "Semaine {CURRENT_WEEK}" entry so those rows don't appear to have silently lost their data.
+  const getSnapshotFallback = (k: KPI, date: string, field: HistoryField): number | undefined => {
+    if (date !== `Semaine ${CURRENT_WEEK}`) return undefined;
+    const edits = localEdits[k.id] || {};
+    if (field === 'site1History') return (edits.site1Value ?? k.site1Value) as number | undefined;
+    if (field === 'site2History') return (edits.site2Value ?? k.site2Value) as number | undefined;
+    return undefined;
+  };
+
   // Reads a single history entry (from any of the 3 history arrays), local edits first
   const getLiveHistoryVal = (kpiId: string, date: string, field: HistoryField = 'history'): number => {
     const k = kpis.find(item => item.id === kpiId);
@@ -178,7 +189,8 @@ export default function KPITeamGuruEntry({
     if (localHist) return Number(localHist.value);
     const origHist = ((k as any)[field] as { date: string; value: number }[] | undefined) || [];
     const orig = origHist.find(h => h.date === date);
-    return orig ? Number(orig.value) : 0;
+    if (orig) return Number(orig.value);
+    return getSnapshotFallback(k, date, field) ?? 0;
   };
 
   // Whether a given week of the exercise year has ever been reported on that history field
@@ -190,7 +202,8 @@ export default function KPITeamGuruEntry({
     const editHist = (edits as any)[field] as { date: string; value: number }[] | undefined;
     if (editHist?.some(h => h.date === label)) return true;
     const origHist = ((k as any)[field] as { date: string; value: number }[] | undefined) || [];
-    return origHist.some(h => h.date === label);
+    if (origHist.some(h => h.date === label)) return true;
+    return getSnapshotFallback(k, label, field) !== undefined;
   };
 
   // Resolves the value shown on a given grid row (total / site1 / site2) for a specific week.

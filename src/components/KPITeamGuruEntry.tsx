@@ -613,6 +613,14 @@ export default function KPITeamGuruEntry({
     // In the "Total Site" view, a site-tracked KPI's Total row starts a group of 3 — mark it
     const startsGroup = rowType === 'total' && bothSites && siteView === 'total';
     const rowTint = rowType === 'site1' ? 'bg-blue-50/20 dark:bg-blue-950/5' : rowType === 'site2' ? 'bg-purple-50/20 dark:bg-purple-950/5' : '';
+    // Frozen columns need an opaque (non-translucent) background so horizontally-scrolled
+    // columns don't show through as they pass underneath.
+    const stickyBg = isModified
+      ? 'bg-blue-50 dark:bg-blue-950'
+      : rowType === 'site1' ? 'bg-blue-50 dark:bg-blue-950'
+      : rowType === 'site2' ? 'bg-purple-50 dark:bg-purple-950'
+      : 'bg-white dark:bg-slate-900';
+    const stickyCol = `sticky z-10 ${stickyBg}`;
 
     return (
       <tr
@@ -622,14 +630,14 @@ export default function KPITeamGuruEntry({
         }`}
       >
         {/* 1. Category Badge */}
-        <td className="py-3 px-4 font-medium">
+        <td className={`py-3 px-4 font-medium ${stickyCol} left-0`}>
           <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full border ${CATEGORY_BADGES[k.category] || 'bg-slate-100 text-slate-800 border-slate-200'}`}>
             {k.category}
           </span>
         </td>
 
         {/* 2. Name & Owner */}
-        <td className="py-2.5 px-4">
+        <td className={`py-2.5 px-4 ${stickyCol} left-28`}>
           <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug flex flex-wrap items-center gap-1.5">
             {rowType === 'total' && bothSites && <Sigma className="w-3 h-3 text-slate-400 shrink-0" title="Total = Site 1 + Site 2" />}
             <span>{k.name}</span>
@@ -661,12 +669,12 @@ export default function KPITeamGuruEntry({
         </td>
 
         {/* 3. Unit */}
-        <td className="py-2.5 px-2 text-center text-slate-400 dark:text-slate-500 font-mono font-bold">
+        <td className={`py-2.5 px-2 text-center text-slate-400 dark:text-slate-500 font-mono font-bold ${stickyCol} left-[336px]`}>
           {k.unit}
         </td>
 
         {/* 4. Target (editable only on the Total row) */}
-        <td className="py-2.5 px-3 text-center">
+        <td className={`py-2.5 px-3 text-center ${stickyCol} left-[392px]`}>
           {rowType === 'total' ? (
             <input
               type="text"
@@ -680,7 +688,7 @@ export default function KPITeamGuruEntry({
         </td>
 
         {/* 5. Value-To-Date summary cell */}
-        <td className="py-2.5 px-2 border-l-2 border-slate-300 dark:border-slate-700 text-center bg-slate-50/70 dark:bg-slate-800/30">
+        <td className={`py-2.5 px-2 text-center sticky z-10 left-[456px] border-l-2 border-r-2 border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800`}>
           {vtd === null ? (
             <span className="text-[11px] text-slate-300 dark:text-slate-600 font-mono">—</span>
           ) : (
@@ -945,7 +953,7 @@ export default function KPITeamGuruEntry({
       </div>
 
       {/* Main Matrice Table Area */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 teamguru-scroll">
 
         {filteredKPIs.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center max-w-md mx-auto my-12 shadow-sm">
@@ -966,18 +974,18 @@ export default function KPITeamGuruEntry({
             </button>
           </div>
         ) : (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
-            <table className="w-full text-left border-collapse" id="teamguru-grid-table">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
+            <table className="min-w-full text-left border-collapse table-fixed" id="teamguru-grid-table">
 
               {/* Table Headers */}
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  <th className="py-3 px-4 w-28">Catégorie</th>
-                  <th className="py-3 px-4 min-w-44">Indicateur & Responsable</th>
-                  <th className="py-3 px-2 w-14 text-center">Unité</th>
-                  <th className="py-3 px-3 w-16 text-center">Target</th>
+                  <th className="py-3 px-4 w-28 sticky top-0 left-0 z-30 bg-slate-100 dark:bg-slate-800">Catégorie</th>
+                  <th className="py-3 px-4 w-56 sticky top-0 left-28 z-30 bg-slate-100 dark:bg-slate-800">Indicateur & Responsable</th>
+                  <th className="py-3 px-2 w-14 text-center sticky top-0 left-[336px] z-30 bg-slate-100 dark:bg-slate-800">Unité</th>
+                  <th className="py-3 px-3 w-16 text-center sticky top-0 left-[392px] z-30 bg-slate-100 dark:bg-slate-800">Target</th>
 
-                  <th className="py-3 px-2 w-20 text-center border-l-2 border-slate-300 dark:border-slate-700 bg-slate-200/60 dark:bg-slate-800/60">
+                  <th className="py-3 px-2 w-20 text-center sticky top-0 left-[456px] z-30 border-l-2 border-r-2 border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800">
                     VTD
                   </th>
 
@@ -985,8 +993,8 @@ export default function KPITeamGuruEntry({
                     MONTH_WEEK_RANGES.map((m, idx) => (
                       <th
                         key={m.name}
-                        className={`py-3 px-2 w-20 text-center border-l border-slate-200 dark:border-slate-800 ${
-                          idx === currentMonthIndex ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-slate-50/50 dark:bg-slate-800/20'
+                        className={`py-3 px-2 w-20 text-center sticky top-0 z-20 border-l border-slate-200 dark:border-slate-800 ${
+                          idx === currentMonthIndex ? 'bg-blue-100 dark:bg-blue-950' : 'bg-slate-100 dark:bg-slate-800'
                         }`}
                       >
                         {m.name} {idx === currentMonthIndex ? '🔥' : ''}
@@ -996,8 +1004,8 @@ export default function KPITeamGuruEntry({
                     allWeeks.map(w => (
                       <th
                         key={w}
-                        className={`py-3 px-2 w-16 text-center border-l border-slate-200 dark:border-slate-800 ${
-                          w === CURRENT_WEEK ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-slate-50/50 dark:bg-slate-800/20'
+                        className={`py-3 px-2 w-16 text-center sticky top-0 z-20 border-l border-slate-200 dark:border-slate-800 ${
+                          w === CURRENT_WEEK ? 'bg-blue-100 dark:bg-blue-950' : 'bg-slate-100 dark:bg-slate-800'
                         }`}
                       >
                         S{w} {w === CURRENT_WEEK ? '🔥' : ''}

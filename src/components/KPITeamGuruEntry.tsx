@@ -18,7 +18,11 @@ import {
   Layers,
   FileSpreadsheet,
   Grid,
-  Cpu
+  Cpu,
+  ArrowUp,
+  ArrowDown,
+  Minus,
+  CalendarRange
 } from 'lucide-react';
 import { KPI, KPIStatus, User } from '../types';
 
@@ -41,6 +45,8 @@ export default function KPITeamGuruEntry({
 
   // Grid view configuration
   const [viewMode, setViewMode] = useState<'weeks' | 'sites' | 'both'>('both');
+  // Annual period axis: monthly rollup (read-only) or weekly detail (editable)
+  const [periodMode, setPeriodMode] = useState<'monthly' | 'weekly'>('monthly');
 
   // Local state to store edits before saving
   // Map of kpiId -> KPI edits
@@ -48,8 +54,24 @@ export default function KPITeamGuruEntry({
   const [saving, setSaving] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // List of weeks extracted from history
-  const historyWeeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
+  // The app's mock "today" sits in Semaine 26 (late June) of the current exercise year
+  const CURRENT_YEAR = 2026;
+  const CURRENT_WEEK = 26;
+
+  // 52-week annual axis, grouped into 12 months (4 or 5 weeks each, summing to 52)
+  const MONTH_NAMES = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+  const WEEKS_PER_MONTH = [4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4, 5];
+  const MONTH_WEEK_RANGES: { name: string; weeks: number[] }[] = (() => {
+    let start = 1;
+    return MONTH_NAMES.map((name, i) => {
+      const count = WEEKS_PER_MONTH[i];
+      const weeks = Array.from({ length: count }, (_, k) => start + k);
+      start += count;
+      return { name, weeks };
+    });
+  })();
+  const currentMonthIndex = MONTH_WEEK_RANGES.findIndex(m => m.weeks.includes(CURRENT_WEEK));
+  const allWeeks = Array.from({ length: 52 }, (_, i) => i + 1);
 
   // Categories list
   const categories = [
@@ -73,10 +95,10 @@ export default function KPITeamGuruEntry({
     setLocalEdits({});
   }, [kpis]);
 
-  // Helper to determine status color dynamically for input cell backgrounds
-  const evaluateStatus = (value: number, target: number, kpiName: string, category: string): KPIStatus => {
+  // Helper to determine whether a lower value is the desirable direction for this metric
+  const isLowerBetterMetric = (kpiName: string, category: string): boolean => {
     const name = kpiName.toLowerCase();
-    const isLowerBetter =
+    return (
       category === 'Sécurité' ||
       name.includes('accidents') ||
       name.includes('ppm') ||
@@ -87,7 +109,13 @@ export default function KPITeamGuruEntry({
       name.includes('déchet') ||
       name.includes('consommation') ||
       name.includes('électricité') ||
-      name.includes('eau');
+      name.includes('eau')
+    );
+  };
+
+  // Helper to determine status color dynamically for input cell backgrounds
+  const evaluateStatus = (value: number, target: number, kpiName: string, category: string): KPIStatus => {
+    const isLowerBetter = isLowerBetterMetric(kpiName, category);
 
     if (isLowerBetter) {
       if (value <= target) return 'Green';
@@ -130,6 +158,58 @@ export default function KPITeamGuruEntry({
     if (localHist) return Number(localHist.value);
     const origHist = k.history.find(h => h.date === date);
     return origHist ? Number(origHist.value) : 0;
+  };
+
+  // Whether a given week of the exercise year has ever been reported (vs. genuinely unreported/blank)
+  const hasWeekData = (kpiId: string, week: number): boolean => {
+    const k = kpis.find(item => item.id === kpiId);
+    if (!k) return false;
+    const label = `Semaine ${week}`;
+    const edits = localEdits[kpiId] || {};
+    if (edits.history?.some(h => h.date === label)) return true;
+    return k.history.some(h => h.date === label);
+  };
+
+  // Monthly rollup = average of the reported weeks that fall within that month; null if none reported
+  const getMonthAggregate = (kpiId: string, monthRange: { weeks: number[] }): number | null => {
+    const vals = monthRange.weeks.filter(w => hasWeekData(kpiId, w)).map(w => getLiveHistoryVal(kpiId, `Semaine ${w}`));
+    if (vals.length === 0) return null;
+    return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+  };
+
+  // Value-to-date = average of all reported weeks so far this year
+  const getVTD = (kpiId: string): number | null => {
+    const vals = allWeeks.filter(w => hasWeekData(kpiId, w)).map(w => getLiveHistoryVal(kpiId, `Semaine ${w}`));
+    if (vals.length === 0) return null;
+    return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+  };
+
+  // Most recent reported week strictly before `week`, or null if none
+  const getPrevWeekValue = (kpiId: string, week: number): number | null => {
+    for (let w = week - 1; w >= 1; w--) {
+      if (hasWeekData(kpiId, w)) return getLiveHistoryVal(kpiId, `Semaine ${w}`);
+    }
+    return null;
+  };
+
+  // Most recent month with a reported rollup strictly before `monthIndex`, or null if none
+  const getPrevMonthAggregate = (kpiId: string, monthIndex: number): number | null => {
+    for (let m = monthIndex - 1; m >= 0; m--) {
+      const agg = getMonthAggregate(kpiId, MONTH_WEEK_RANGES[m]);
+      if (agg !== null) return agg;
+    }
+    return null;
+  };
+
+  // Small directional indicator comparing a period's value to the prior reported period
+  const getTrendIcon = (current: number, previous: number | null, isLowerBetter: boolean) => {
+    if (previous === null || current === previous) {
+      return <Minus className="w-2.5 h-2.5 text-slate-300 dark:text-slate-600" />;
+    }
+    const improved = isLowerBetter ? current < previous : current > previous;
+    return improved
+      ? <ArrowUp className="w-2.5 h-2.5 text-emerald-500" />
+      : <ArrowDown className="w-2.5 h-2.5 text-rose-500" />;
   };
 
   // Get live value of any field, looking at local edits first, then actual database values
@@ -595,7 +675,7 @@ export default function KPITeamGuruEntry({
                 viewMode === 'weeks' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
               }`}
             >
-              Historique Hebdo
+              Vue Annuelle
             </button>
             <button
               onClick={() => setViewMode('sites')}
@@ -614,6 +694,30 @@ export default function KPITeamGuruEntry({
               Complet
             </button>
           </div>
+
+          {/* Monthly / Weekly period toggler (TeamGuru-style annual view) */}
+          {(viewMode === 'weeks' || viewMode === 'both') && (
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs">
+              <CalendarRange className="w-3.5 h-3.5 text-slate-400 ml-1.5 shrink-0" />
+              <button
+                onClick={() => setPeriodMode('monthly')}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                  periodMode === 'monthly' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Mensuel
+              </button>
+              <button
+                onClick={() => setPeriodMode('weekly')}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                  periodMode === 'weekly' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Hebdomadaire
+              </button>
+              <span className="pr-2.5 text-[10px] font-mono text-slate-400">Exercice {CURRENT_YEAR}</span>
+            </div>
+          )}
 
           {/* Search bar */}
           <div className="relative">
@@ -664,12 +768,39 @@ export default function KPITeamGuruEntry({
                   <th className="py-3 px-2 w-14 text-center">Unité</th>
                   <th className="py-3 px-3 w-16 text-center">Target</th>
                   
-                  {/* History Weeks columns */}
-                  {(viewMode === 'weeks' || viewMode === 'both') && historyWeeks.map(week => (
-                    <th key={week} className="py-3 px-2 w-24 text-center border-l border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
-                      {week} {week === 'Semaine 26' ? '🔥' : ''}
+                  {/* Value-To-Date column */}
+                  {(viewMode === 'weeks' || viewMode === 'both') && (
+                    <th className="py-3 px-2 w-20 text-center border-l-2 border-slate-300 dark:border-slate-700 bg-slate-200/60 dark:bg-slate-800/60">
+                      VTD
                     </th>
-                  ))}
+                  )}
+
+                  {/* Annual period columns: 12 months or 52 weeks, depending on periodMode */}
+                  {(viewMode === 'weeks' || viewMode === 'both') && (
+                    periodMode === 'monthly' ? (
+                      MONTH_WEEK_RANGES.map((m, idx) => (
+                        <th
+                          key={m.name}
+                          className={`py-3 px-2 w-20 text-center border-l border-slate-200 dark:border-slate-800 ${
+                            idx === currentMonthIndex ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-slate-50/50 dark:bg-slate-800/20'
+                          }`}
+                        >
+                          {m.name} {idx === currentMonthIndex ? '🔥' : ''}
+                        </th>
+                      ))
+                    ) : (
+                      allWeeks.map(w => (
+                        <th
+                          key={w}
+                          className={`py-3 px-2 w-16 text-center border-l border-slate-200 dark:border-slate-800 ${
+                            w === CURRENT_WEEK ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-slate-50/50 dark:bg-slate-800/20'
+                          }`}
+                        >
+                          S{w} {w === CURRENT_WEEK ? '🔥' : ''}
+                        </th>
+                      ))
+                    )
+                  )}
 
                   {/* Site values columns */}
                   {(viewMode === 'sites' || viewMode === 'both') && (
@@ -701,6 +832,7 @@ export default function KPITeamGuruEntry({
                     'kpi-cost-taux-dechet',
                     'kpi-rh-presence'
                   ].includes(k.id);
+                  const isLowerBetterRow = isLowerBetterMetric(k.name, k.category);
 
                   // Status indicators for categorizing
                   const catBadges: Record<string, string> = {
@@ -786,29 +918,89 @@ export default function KPITeamGuruEntry({
                         />
                       </td>
 
-                      {/* 5. Historic Weeks Columns */}
-                      {(viewMode === 'weeks' || viewMode === 'both') && historyWeeks.map(week => {
-                        const val = liveK.history.find(h => h.date === week)?.value ?? 0;
-                        const status = evaluateStatus(val, liveK.target, k.name, k.category);
-                        const cellColor = getCellColorClass(status);
-
+                      {/* 5. Value-To-Date summary cell */}
+                      {(viewMode === 'weeks' || viewMode === 'both') && (() => {
+                        const vtd = getVTD(k.id);
                         return (
-                          <td key={week} className="py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center">
-                            <input
-                              type="text"
-                              value={val}
-                              readOnly={isFormula}
-                              disabled={isFormula}
-                              onChange={(e) => handleHistoryChange(k.id, week, e.target.value)}
-                              className={`w-18 text-center py-1 border rounded-md font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
-                                isFormula
-                                  ? 'bg-slate-100 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-850'
-                                  : cellColor
-                              }`}
-                            />
+                          <td className="py-2.5 px-2 border-l-2 border-slate-300 dark:border-slate-700 text-center bg-slate-50/70 dark:bg-slate-800/30">
+                            {vtd === null ? (
+                              <span className="text-[11px] text-slate-300 dark:text-slate-600 font-mono">—</span>
+                            ) : (
+                              <div className={`mx-auto px-1.5 py-1 rounded-md border font-mono ${getCellColorClass(evaluateStatus(vtd, liveK.target, k.name, k.category))}`}>
+                                <div className="text-xs font-extrabold leading-none">{vtd}</div>
+                                <div className="text-[9px] opacity-60 leading-none mt-0.5">cible {liveK.target}</div>
+                              </div>
+                            )}
                           </td>
                         );
-                      })}
+                      })()}
+
+                      {/* 6. Annual period columns: monthly rollup (read-only) or weekly detail (editable) */}
+                      {(viewMode === 'weeks' || viewMode === 'both') && (
+                        periodMode === 'monthly' ? (
+                          MONTH_WEEK_RANGES.map((m, idx) => {
+                            const agg = getMonthAggregate(k.id, m);
+                            const prev = getPrevMonthAggregate(k.id, idx);
+                            const status = agg !== null ? evaluateStatus(agg, liveK.target, k.name, k.category) : null;
+                            return (
+                              <td
+                                key={m.name}
+                                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center ${
+                                  idx === currentMonthIndex ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
+                                }`}
+                              >
+                                {agg === null ? (
+                                  <span className="text-[11px] text-slate-300 dark:text-slate-600 font-mono">—</span>
+                                ) : (
+                                  <div className={`mx-auto w-16 flex items-center justify-center gap-1 py-1 rounded-md border font-mono font-bold text-xs ${getCellColorClass(status!)}`}>
+                                    <span>{agg}</span>
+                                    {getTrendIcon(agg, prev, isLowerBetterRow)}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })
+                        ) : (
+                          allWeeks.map(w => {
+                            const hasData = hasWeekData(k.id, w);
+                            const val = hasData ? getLiveHistoryVal(k.id, `Semaine ${w}`) : null;
+                            const prev = getPrevWeekValue(k.id, w);
+                            const status = val !== null ? evaluateStatus(val, liveK.target, k.name, k.category) : null;
+
+                            return (
+                              <td
+                                key={w}
+                                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center ${
+                                  w === CURRENT_WEEK ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
+                                }`}
+                              >
+                                <div className="relative w-16 mx-auto">
+                                  <input
+                                    type="text"
+                                    value={val ?? ''}
+                                    placeholder="—"
+                                    readOnly={isFormula}
+                                    disabled={isFormula}
+                                    onChange={(e) => handleHistoryChange(k.id, `Semaine ${w}`, e.target.value)}
+                                    className={`w-full text-center py-1 border rounded-md font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
+                                      isFormula
+                                        ? 'bg-slate-100 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-850'
+                                        : status
+                                          ? getCellColorClass(status)
+                                          : 'bg-slate-50/50 dark:bg-slate-900/20 text-slate-300 dark:text-slate-700 border-slate-100 dark:border-slate-850'
+                                    }`}
+                                  />
+                                  {val !== null && (
+                                    <span className="absolute -top-1 -right-1 bg-white dark:bg-slate-900 rounded-full">
+                                      {getTrendIcon(val, prev, isLowerBetterRow)}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })
+                        )
+                      )}
 
                       {/* 6. Site-Specific inputs */}
                       {(viewMode === 'sites' || viewMode === 'both') && (

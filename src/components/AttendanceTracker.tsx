@@ -252,8 +252,11 @@ export default function AttendanceTracker({
   const representedCount = presentCount + delegateCount;
   const presenceRate = totalUsers > 0 ? Math.round((representedCount / totalUsers) * 100) : 100;
 
-  // Prepare chart data from every week that actually has recorded attendance
+  // Prepare chart data for the recorded weeks that fall within the selected month only,
+  // so the trend follows the Année/Mois/Semaine filter instead of always showing everything.
+  const monthWeekSet = new Set(MONTH_WEEK_RANGES[selectedMonthIndex].weeks);
   const chartData = attendanceData
+    .filter(dataForWeek => monthWeekSet.has(getWeekNum(dataForWeek.week)))
     .map(dataForWeek => {
       const recs = dataForWeek.records;
       const tot = recs.length;
@@ -469,10 +472,10 @@ export default function AttendanceTracker({
             <div className="flex items-center justify-between mb-2">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Tendance Historique - Assiduité Tier 4
+                  Tendance Historique - Assiduité Tier 4 ({MONTH_WEEK_RANGES[selectedMonthIndex].name} {CURRENT_YEAR})
                 </span>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  Évolution du taux d'assiduité calculé à partir de la matrice d'ateliers.
+                  Évolution du taux d'assiduité calculé à partir de la matrice d'ateliers pour le mois sélectionné.
                 </p>
               </div>
               <TrendingUp className="w-4 h-4 text-emerald-500" />

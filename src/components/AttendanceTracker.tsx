@@ -9,7 +9,6 @@ import {
   Calendar,
   Check,
   X,
-  UserCheck,
   Award,
   AlertCircle,
   TrendingUp,
@@ -17,9 +16,7 @@ import {
   RotateCcw,
   Sparkles,
   Copy,
-  Info,
-  ChevronRight,
-  UserPlus
+  Info
 } from 'lucide-react';
 import {
   AreaChart,
@@ -38,24 +35,45 @@ interface AttendanceTrackerProps {
   onRefreshData: () => Promise<void>;
 }
 
+// The app's single modeled exercise year, and its 52-week axis grouped into 12 months
+// (4 or 5 weeks each, summing to 52) — same convention used across the KPI grid.
+const CURRENT_YEAR = 2026;
+const CURRENT_WEEK = 26;
+const MONTH_NAMES = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+const WEEKS_PER_MONTH = [4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4, 5];
+const MONTH_WEEK_RANGES: { name: string; weeks: number[] }[] = (() => {
+  let start = 1;
+  return MONTH_NAMES.map((name, i) => {
+    const count = WEEKS_PER_MONTH[i];
+    const weeks = Array.from({ length: count }, (_, k) => start + k);
+    start += count;
+    return { name, weeks };
+  });
+})();
+const getWeekNum = (label: string) => parseInt(label.replace(/\D/g, ''), 10) || 0;
+
 export default function AttendanceTracker({
   users,
   currentUser,
   onRefreshData
 }: AttendanceTrackerProps) {
-  // Available weeks
-  const [weeks, setWeeks] = useState<string[]>(['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26']);
-  const [selectedWeek, setSelectedWeek] = useState<string>('Semaine 26');
-  
+  const [selectedWeek, setSelectedWeek] = useState<string>(`Semaine ${CURRENT_WEEK}`);
+  const selectedMonthIndex = MONTH_WEEK_RANGES.findIndex(m => m.weeks.includes(getWeekNum(selectedWeek)));
+
   // All weekly attendance data fetched from API
   const [attendanceData, setAttendanceData] = useState<WeeklyAttendance[]>([]);
   // Local edited records for the selected week
   const [localRecords, setLocalRecords] = useState<AttendanceRecord[]>([]);
-  
+
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Switching month jumps to that month's first week
+  const handleMonthChange = (monthIndex: number) => {
+    setSelectedWeek(`Semaine ${MONTH_WEEK_RANGES[monthIndex].weeks[0]}`);
+  };
 
   // Load attendance data on mount
   const fetchAttendance = async () => {
@@ -65,14 +83,6 @@ export default function AttendanceTracker({
       if (response.ok) {
         const data: WeeklyAttendance[] = await response.json();
         setAttendanceData(data);
-        
-        // Extract unique weeks list
-        if (data.length > 0) {
-          const fetchedWeeks = data.map(d => d.week);
-          // Combine with default weeks list to be safe
-          const allWeeks = Array.from(new Set([...fetchedWeeks, 'Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26']));
-          setWeeks(allWeeks.sort());
-        }
       }
     } catch (err) {
       console.error('Failed to fetch attendance data:', err);
@@ -132,9 +142,9 @@ export default function AttendanceTracker({
 
   // Quick Action: Copy from previous week
   const handleCopyPreviousWeek = () => {
-    const currentWeekNum = parseInt(selectedWeek.replace(/\D/g, ''));
-    if (isNaN(currentWeekNum)) return;
-    
+    const currentWeekNum = getWeekNum(selectedWeek);
+    if (currentWeekNum <= 1) return;
+
     const prevWeekName = `Semaine ${currentWeekNum - 1}`;
     const previous = attendanceData.find(a => a.week === prevWeekName);
     
@@ -168,28 +178,6 @@ export default function AttendanceTracker({
       return { ...rec, status };
     });
     setLocalRecords(updated);
-  };
-
-  // Add a new week of attendance
-  const handleAddNewWeek = () => {
-    const maxWeek = weeks.reduce((max, w) => {
-      const num = parseInt(w.replace(/\D/g, ''));
-      return isNaN(num) ? max : Math.max(max, num);
-    }, 26);
-    
-    const nextWeekName = `Semaine ${maxWeek + 1}`;
-    setWeeks(prev => [...prev, nextWeekName]);
-    setSelectedWeek(nextWeekName);
-    
-    // Copy current week's records as starting point
-    const freshRecords = localRecords.map(rec => ({
-      ...rec,
-      status: 'Présent' as AttendanceStatus
-    }));
-    setLocalRecords(freshRecords);
-    
-    setSuccessMsg(`Nouvelle grille créée pour la ${nextWeekName}. Saisissez les statuts puis enregistrez.`);
-    setTimeout(() => setSuccessMsg(null), 5000);
   };
 
   // Save changes to backend
@@ -254,35 +242,16 @@ export default function AttendanceTracker({
   const representedCount = presentCount + delegateCount;
   const presenceRate = totalUsers > 0 ? Math.round((representedCount / totalUsers) * 100) : 100;
 
-  // Prepare chart data from fetched weeks
-  const chartData = weeks.map(w => {
-    const dataForWeek = attendanceData.find(a => a.week === w);
-    let rate = 100; // default fallback if no entry
-    
-    if (dataForWeek) {
+  // Prepare chart data from every week that actually has recorded attendance
+  const chartData = attendanceData
+    .map(dataForWeek => {
       const recs = dataForWeek.records;
       const tot = recs.length;
       const rep = recs.filter(r => r.status === 'Présent' || r.status === 'Délégué').length;
-      rate = tot > 0 ? Math.round((rep / tot) * 100) : 100;
-    } else if (w === 'Semaine 23') {
-      rate = 95;
-    } else if (w === 'Semaine 24') {
-      rate = 100;
-    } else if (w === 'Semaine 25') {
-      rate = 92;
-    } else if (w === 'Semaine 26') {
-      rate = 92;
-    }
-    
-    return {
-      name: w,
-      'Taux de Présence': rate
-    };
-  }).sort((a, b) => {
-    const numA = parseInt(a.name.replace(/\D/g, '')) || 0;
-    const numB = parseInt(b.name.replace(/\D/g, '')) || 0;
-    return numA - numB;
-  });
+      const rate = tot > 0 ? Math.round((rep / tot) * 100) : 100;
+      return { name: dataForWeek.week, 'Taux de Présence': rate };
+    })
+    .sort((a, b) => getWeekNum(a.name) - getWeekNum(b.name));
 
   // Check if anything has been modified compared to saved state
   const isModified = () => {
@@ -312,30 +281,35 @@ export default function AttendanceTracker({
 
         {/* Action Panel */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Week Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
-            <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1" />
+          {/* Year / Month / Week filter — any week of the exercise year is selectable */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 ml-1.5 shrink-0" />
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 px-1 font-mono">{CURRENT_YEAR}</span>
+            <span className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+            <select
+              value={selectedMonthIndex}
+              onChange={(e) => handleMonthChange(Number(e.target.value))}
+              className="bg-transparent border-none text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none py-0.5 pr-1 cursor-pointer"
+            >
+              {MONTH_WEEK_RANGES.map((m, idx) => (
+                <option key={m.name} value={idx} className="bg-white dark:bg-slate-900 font-sans font-medium">
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <span className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
             <select
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(e.target.value)}
               className="bg-transparent border-none text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none pr-6 py-0.5 cursor-pointer"
             >
-              {weeks.map(w => (
-                <option key={w} value={w} className="bg-white dark:bg-slate-900 font-sans font-medium">
-                  {w}
+              {MONTH_WEEK_RANGES[selectedMonthIndex].weeks.map(w => (
+                <option key={w} value={`Semaine ${w}`} className="bg-white dark:bg-slate-900 font-sans font-medium">
+                  Semaine {w}{w === CURRENT_WEEK ? ' (actuelle)' : ''}
                 </option>
               ))}
             </select>
           </div>
-
-          <button
-            onClick={handleAddNewWeek}
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold transition-all"
-            title="Créer une nouvelle semaine"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Nouvelle Semaine</span>
-          </button>
 
           {isModified() && (
             <>

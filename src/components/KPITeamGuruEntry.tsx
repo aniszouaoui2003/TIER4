@@ -85,11 +85,23 @@ export default function KPITeamGuruEntry({
   // a direct style write (not React state, to avoid re-rendering on every scroll tick) to mirror
   // the body's horizontal scroll position.
   const rightHeaderInnerRef = useRef<HTMLDivElement>(null);
-  const handleRightPanelScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (rightHeaderInnerRef.current) {
-      rightHeaderInnerRef.current.style.transform = `translateX(-${e.currentTarget.scrollLeft}px)`;
-    }
+  // The real scrolling body is ~85 rows tall, so its own native horizontal scrollbar sits far
+  // below the viewport — effectively unreachable. A second, sticky-to-the-viewport-bottom scroll
+  // strip (empty except for a spacer matching the content width) acts as the visible/grabbable
+  // scrollbar; the two are kept in sync in both directions, guarded against feedback loops.
+  const rightBodyRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
+  const isSyncingScrollRef = useRef(false);
+  const syncHorizontalScroll = (scrollLeft: number, source: 'body' | 'bar') => {
+    if (isSyncingScrollRef.current) return;
+    isSyncingScrollRef.current = true;
+    if (source === 'bar' && rightBodyRef.current) rightBodyRef.current.scrollLeft = scrollLeft;
+    if (source === 'body' && bottomScrollRef.current) bottomScrollRef.current.scrollLeft = scrollLeft;
+    if (rightHeaderInnerRef.current) rightHeaderInnerRef.current.style.transform = `translateX(-${scrollLeft}px)`;
+    isSyncingScrollRef.current = false;
   };
+  const handleRightPanelScroll = (e: React.UIEvent<HTMLDivElement>) => syncHorizontalScroll(e.currentTarget.scrollLeft, 'body');
+  const handleBottomBarScroll = (e: React.UIEvent<HTMLDivElement>) => syncHorizontalScroll(e.currentTarget.scrollLeft, 'bar');
 
   // The app's mock "today" sits in Semaine 26 (late June) of the current exercise year
   const CURRENT_YEAR = 2026;
@@ -722,8 +734,11 @@ export default function KPITeamGuruEntry({
     );
 
     const periodGridColumns = `repeat(${periodCount}, ${periodColWidth}px)`;
+    // display:grid on a block-level element fills its container's width by default — it does NOT
+    // grow to fit wide fixed-size tracks the way grid-template-columns alone might suggest. An
+    // explicit width is required or this row silently compresses to fit instead of overflowing.
     const right = (
-      <div key={`${k.id}-${rowType}-r`} className={rowClass} style={{ gridTemplateColumns: periodGridColumns }}>
+      <div key={`${k.id}-${rowType}-r`} className={rowClass} style={{ gridTemplateColumns: periodGridColumns, width: periodColWidth * periodCount }}>
         {periodMode === 'monthly' ? (
           MONTH_WEEK_RANGES.map((m, idx) => {
             const effective = getEffectiveMonthValue(k, rowType, idx);
@@ -1026,7 +1041,7 @@ export default function KPITeamGuruEntry({
 
               {/* Left panel: frozen Catégorie → VTD columns. Never scrolls horizontally. */}
               <div className="shrink-0" style={{ width: 536 }}>
-                <div className={`${headerRowCls} rounded-tl-xl`} style={{ gridTemplateColumns: FROZEN_COLUMNS }}>
+                <div className={`${headerRowCls} rounded-tl-xl`} style={{ gridTemplateColumns: FROZEN_COLUMNS, willChange: 'transform' }}>
                   <div className="py-3 px-4 flex items-center">Catégorie</div>
                   <div className="py-3 px-4 flex items-center">Indicateur & Responsable</div>
                   <div className="py-3 px-2 text-center flex items-center justify-center">Unité</div>
@@ -1042,8 +1057,8 @@ export default function KPITeamGuruEntry({
                   (overflow-x-auto on the body below would otherwise break its stickiness — see
                   handleRightPanelScroll), shifted in sync with the body's real horizontal scroll. */}
               <div className="flex-1 min-w-0">
-                <div className="sticky top-0 z-20 overflow-hidden rounded-tr-xl">
-                  <div ref={rightHeaderInnerRef} className={headerRowCls} style={{ gridTemplateColumns: periodGridColumns }}>
+                <div className="sticky top-0 z-20 overflow-hidden rounded-tr-xl" style={{ willChange: 'transform' }}>
+                  <div ref={rightHeaderInnerRef} className={headerRowCls} style={{ gridTemplateColumns: periodGridColumns, width: periodColWidth * periodCount }}>
                     {periodMode === 'monthly' ? (
                       MONTH_WEEK_RANGES.map((m, idx) => (
                         <div
@@ -1074,8 +1089,19 @@ export default function KPITeamGuruEntry({
                     would silently turn this into a second, independent vertical scroll container
                     competing with the page's — the exact cause of the stray content appearing
                     above the sticky header while scrolling. */}
-                <div className="overflow-x-auto overflow-y-hidden teamguru-scroll rounded-br-xl" onScroll={handleRightPanelScroll}>
+                <div ref={rightBodyRef} className="overflow-x-auto overflow-y-hidden teamguru-scroll rounded-br-xl" onScroll={handleRightPanelScroll}>
                   {rows.map(r => r.right)}
+                </div>
+
+                {/* Visible, always-reachable horizontal scrollbar pinned to the viewport bottom —
+                    the real body's own scrollbar is ~85 rows down and effectively unusable. */}
+                <div
+                  ref={bottomScrollRef}
+                  className="sticky bottom-0 z-20 overflow-x-auto overflow-y-hidden teamguru-scroll bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800"
+                  style={{ height: 16 }}
+                  onScroll={handleBottomBarScroll}
+                >
+                  <div style={{ width: periodColWidth * periodCount, height: 1 }} />
                 </div>
               </div>
 

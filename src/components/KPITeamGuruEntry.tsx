@@ -610,10 +610,16 @@ export default function KPITeamGuruEntry({
         ? { text: `Site 2${k.site2Owner ? ` — ${k.site2Owner}` : ''}`, cls: 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/50' }
         : null;
 
+    // In the "Total Site" view, a site-tracked KPI's Total row starts a group of 3 — mark it
+    const startsGroup = rowType === 'total' && bothSites && siteView === 'total';
+    const rowTint = rowType === 'site1' ? 'bg-blue-50/20 dark:bg-blue-950/5' : rowType === 'site2' ? 'bg-purple-50/20 dark:bg-purple-950/5' : '';
+
     return (
       <tr
         key={`${k.id}-${rowType}`}
-        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all ${isModified ? 'bg-blue-50/20 dark:bg-blue-950/5' : ''}`}
+        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all ${rowTint} ${isModified ? 'bg-blue-50/20 dark:bg-blue-950/5' : ''} ${
+          startsGroup ? 'border-t-2 border-slate-200 dark:border-slate-800' : ''
+        }`}
       >
         {/* 1. Category Badge */}
         <td className="py-3 px-4 font-medium">
@@ -1010,13 +1016,18 @@ export default function KPITeamGuruEntry({
                   const isLowerBetterRow = isLowerBetterMetric(k.name, k.category);
                   const bothSites = !!(k.site1Checked && k.site2Checked);
 
-                  // KPIs not tracked for the selected site simply show their Total row instead
-                  const rowType: RowType =
-                    siteView === 'site1' ? (k.site1Checked ? 'site1' : 'total') :
-                    siteView === 'site2' ? (k.site2Checked ? 'site2' : 'total') :
-                    'total';
+                  // "Total Site" shows the Total plus both site breakdowns together; picking a
+                  // specific site shows only that row (falling back to Total if untracked there)
+                  const rowTypes: RowType[] =
+                    siteView === 'site1' ? [k.site1Checked ? 'site1' : 'total'] :
+                    siteView === 'site2' ? [k.site2Checked ? 'site2' : 'total'] :
+                    ['total', ...(k.site1Checked ? (['site1'] as RowType[]) : []), ...(k.site2Checked ? (['site2'] as RowType[]) : [])];
 
-                  return renderRow(k, rowType, liveK, isFormula, isLowerBetterRow, isModified, bothSites);
+                  return (
+                    <React.Fragment key={k.id}>
+                      {rowTypes.map(rowType => renderRow(k, rowType, liveK, isFormula, isLowerBetterRow, isModified, bothSites))}
+                    </React.Fragment>
+                  );
                 })}
               </tbody>
 

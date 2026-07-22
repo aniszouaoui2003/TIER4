@@ -57,6 +57,9 @@ export interface KPI {
   site1Owner?: string;
   site2Owner?: string;
   officeplastOwner?: string;
+  // Per-site weekly history ("Semaine N" labels), independent from the combined `history` above.
+  site1History?: { date: string; value: number }[];
+  site2History?: { date: string; value: number }[];
 }
 
 export interface ActionAttachment {

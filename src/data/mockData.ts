@@ -63,6 +63,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 1,
     site2Value: 0,
+    site1History: [{ date: 'Semaine 26', value: 1 }],
+    site2History: [{ date: 'Semaine 26', value: 0 }],
     history: [
       { date: 'Semaine 23', value: 0 },
       { date: 'Semaine 24', value: 0 },
@@ -138,6 +140,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Ali Bacha',
     site1Value: 72,
     site2Value: 54,
+    site1History: [{ date: 'Semaine 26', value: 72 }],
+    site2History: [{ date: 'Semaine 26', value: 54 }],
     history: [
       { date: 'Semaine 23', value: 125 },
       { date: 'Semaine 24', value: 126 },
@@ -165,6 +169,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Ali Bacha',
     site1Value: 69,
     site2Value: 52,
+    site1History: [{ date: 'Semaine 26', value: 69 }],
+    site2History: [{ date: 'Semaine 26', value: 52 }],
     history: [
       { date: 'Semaine 23', value: 120 },
       { date: 'Semaine 24', value: 121 },
@@ -192,6 +198,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Ali Bacha',
     site1Value: -3,
     site2Value: -1,
+    site1History: [{ date: 'Semaine 26', value: -3 }],
+    site2History: [{ date: 'Semaine 26', value: -1 }],
     history: [
       { date: 'Semaine 23', value: -2 },
       { date: 'Semaine 24', value: -1 },
@@ -221,6 +229,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 1,
     site2Value: 1,
+    site1History: [{ date: 'Semaine 26', value: 1 }],
+    site2History: [{ date: 'Semaine 26', value: 1 }],
     history: [
       { date: 'Semaine 23', value: 0 },
       { date: 'Semaine 24', value: 1 },
@@ -248,6 +258,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 2,
     site2Value: 2,
+    site1History: [{ date: 'Semaine 26', value: 2 }],
+    site2History: [{ date: 'Semaine 26', value: 2 }],
     history: [
       { date: 'Semaine 23', value: 1 },
       { date: 'Semaine 24', value: 2 },
@@ -275,6 +287,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 4,
     site2Value: 3,
+    site1History: [{ date: 'Semaine 26', value: 4 }],
+    site2History: [{ date: 'Semaine 26', value: 3 }],
     history: [
       { date: 'Semaine 23', value: 2 },
       { date: 'Semaine 24', value: 4 },
@@ -302,6 +316,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 105,
     site2Value: 80,
+    site1History: [{ date: 'Semaine 26', value: 105 }],
+    site2History: [{ date: 'Semaine 26', value: 80 }],
     history: [
       { date: 'Semaine 23', value: 190 },
       { date: 'Semaine 24', value: 195 },
@@ -329,6 +345,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 90.5,
     site2Value: 92.5,
+    site1History: [{ date: 'Semaine 26', value: 90.5 }],
+    site2History: [{ date: 'Semaine 26', value: 92.5 }],
     history: [
       { date: 'Semaine 23', value: 98.5 },
       { date: 'Semaine 24', value: 97.2 },
@@ -358,6 +376,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 91.0,
     site2Value: 94.0,
+    site1History: [{ date: 'Semaine 26', value: 91.0 }],
+    site2History: [{ date: 'Semaine 26', value: 94.0 }],
     history: [
       { date: 'Semaine 23', value: 95.5 },
       { date: 'Semaine 24', value: 94.8 },
@@ -385,6 +405,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 90,
     site2Value: 60,
+    site1History: [{ date: 'Semaine 26', value: 90 }],
+    site2History: [{ date: 'Semaine 26', value: 60 }],
     history: [
       { date: 'Semaine 23', value: 40 },
       { date: 'Semaine 24', value: 85 },
@@ -412,6 +434,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 1,
     site2Value: 0,
+    site1History: [{ date: 'Semaine 26', value: 1 }],
+    site2History: [{ date: 'Semaine 26', value: 0 }],
     history: [
       { date: 'Semaine 23', value: 0 },
       { date: 'Semaine 24', value: 1 },
@@ -439,6 +463,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 95.5,
     site2Value: 97.0,
+    site1History: [{ date: 'Semaine 26', value: 95.5 }],
+    site2History: [{ date: 'Semaine 26', value: 97.0 }],
     history: [
       { date: 'Semaine 23', value: 98.2 },
       { date: 'Semaine 24', value: 97.5 },
@@ -492,6 +518,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 16200,
     site2Value: 12250,
+    site1History: [{ date: 'Semaine 26', value: 16200 }],
+    site2History: [{ date: 'Semaine 26', value: 12250 }],
     history: [
       { date: 'Semaine 23', value: 29500 },
       { date: 'Semaine 24', value: 28800 },
@@ -519,6 +547,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 17000,
     site2Value: 13000,
+    site1History: [{ date: 'Semaine 26', value: 17000 }],
+    site2History: [{ date: 'Semaine 26', value: 13000 }],
     history: [
       { date: 'Semaine 23', value: 30000 },
       { date: 'Semaine 24', value: 30000 },
@@ -546,6 +576,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 95.3,
     site2Value: 94.2,
+    site1History: [{ date: 'Semaine 26', value: 95.3 }],
+    site2History: [{ date: 'Semaine 26', value: 94.2 }],
     history: [
       { date: 'Semaine 23', value: 98.3 },
       { date: 'Semaine 24', value: 96.0 },
@@ -573,6 +605,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 81.0,
     site2Value: 61.5,
+    site1History: [{ date: 'Semaine 26', value: 81.0 }],
+    site2History: [{ date: 'Semaine 26', value: 61.5 }],
     history: [
       { date: 'Semaine 23', value: 147.5 },
       { date: 'Semaine 24', value: 144.0 },
@@ -600,6 +634,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 85.0,
     site2Value: 65.0,
+    site1History: [{ date: 'Semaine 26', value: 85.0 }],
+    site2History: [{ date: 'Semaine 26', value: 65.0 }],
     history: [
       { date: 'Semaine 23', value: 150.0 },
       { date: 'Semaine 24', value: 150.0 },
@@ -627,6 +663,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 95.3,
     site2Value: 94.6,
+    site1History: [{ date: 'Semaine 26', value: 95.3 }],
+    site2History: [{ date: 'Semaine 26', value: 94.6 }],
     history: [
       { date: 'Semaine 23', value: 98.3 },
       { date: 'Semaine 24', value: 96.0 },
@@ -654,6 +692,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mokded Nasri',
     site1Value: 1.6,
     site2Value: 1.2,
+    site1History: [{ date: 'Semaine 26', value: 1.6 }],
+    site2History: [{ date: 'Semaine 26', value: 1.2 }],
     history: [
       { date: 'Semaine 23', value: 2.5 },
       { date: 'Semaine 24', value: 3.0 },
@@ -681,6 +721,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mokded Nasri',
     site1Value: 81.0,
     site2Value: 61.5,
+    site1History: [{ date: 'Semaine 26', value: 81.0 }],
+    site2History: [{ date: 'Semaine 26', value: 61.5 }],
     history: [
       { date: 'Semaine 23', value: 147.5 },
       { date: 'Semaine 24', value: 144.0 },
@@ -735,6 +777,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Jamel Ferchichi',
     site1Value: 88.2,
     site2Value: 91.0,
+    site1History: [{ date: 'Semaine 26', value: 88.2 }],
+    site2History: [{ date: 'Semaine 26', value: 91.0 }],
     history: [
       { date: 'Semaine 23', value: 94.1 },
       { date: 'Semaine 24', value: 92.8 },
@@ -762,6 +806,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Jamel Ferchichi',
     site1Value: 91.0,
     site2Value: 94.2,
+    site1History: [{ date: 'Semaine 26', value: 91.0 }],
+    site2History: [{ date: 'Semaine 26', value: 94.2 }],
     history: [
       { date: 'Semaine 23', value: 96.0 },
       { date: 'Semaine 24', value: 95.5 },
@@ -789,6 +835,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Jamel Ferchichi',
     site1Value: 26.8,
     site2Value: 21.5,
+    site1History: [{ date: 'Semaine 26', value: 26.8 }],
+    site2History: [{ date: 'Semaine 26', value: 21.5 }],
     history: [
       { date: 'Semaine 23', value: 18.2 },
       { date: 'Semaine 24', value: 20.5 },
@@ -818,6 +866,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Mahdi Moonem',
     site1Value: 95.0,
     site2Value: 98.0,
+    site1History: [{ date: 'Semaine 26', value: 95.0 }],
+    site2History: [{ date: 'Semaine 26', value: 98.0 }],
     history: [
       { date: 'Semaine 23', value: 94.0 },
       { date: 'Semaine 24', value: 95.5 },
@@ -845,6 +895,8 @@ export const INITIAL_KPIS: KPI[] = [
     site2Owner: 'Khouloud Ncibi',
     site1Value: 82.0,
     site2Value: 85.2,
+    site1History: [{ date: 'Semaine 26', value: 82.0 }],
+    site2History: [{ date: 'Semaine 26', value: 85.2 }],
     history: [
       { date: 'Semaine 23', value: 86.5 },
       { date: 'Semaine 24', value: 85.0 },

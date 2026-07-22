@@ -20,7 +20,8 @@ import {
   Minus,
   CalendarRange,
   Factory,
-  Sigma
+  Sigma,
+  Pencil
 } from 'lucide-react';
 import { KPI, KPIStatus, User } from '../types';
 
@@ -32,6 +33,7 @@ interface KPITeamGuruEntryProps {
 
 type RowType = 'total' | 'site1' | 'site2';
 type HistoryField = 'history' | 'site1History' | 'site2History';
+type MonthlyField = 'monthlyOverrides' | 'site1MonthlyOverrides' | 'site2MonthlyOverrides';
 
 const CATEGORY_BADGES: Record<string, string> = {
   'Sécurité': 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-900/40',
@@ -247,11 +249,50 @@ export default function KPITeamGuruEntry({
     return null;
   };
 
-  // Most recent month with a reported rollup strictly before `monthIndex`, or null if none
-  const getPrevMonthAggregate = (monthIndex: number, getWeekVal: (w: number) => number | null): number | null => {
+  // A manually-typed monthly value for this row, if any (local edits take priority). Once that
+  // entry is removed (empty input), this returns null again and the weekly rollup takes over.
+  const getMonthlyOverrideVal = (kpiId: string, monthName: string, field: MonthlyField): number | null => {
+    const k = kpis.find(item => item.id === kpiId);
+    if (!k) return null;
+    const edits = localEdits[kpiId] || {};
+    const editArr = (edits as any)[field] as { date: string; value: number }[] | undefined;
+    if (editArr) {
+      const found = editArr.find(e => e.date === monthName);
+      return found ? Number(found.value) : null;
+    }
+    const origArr = ((k as any)[field] as { date: string; value: number }[] | undefined) || [];
+    const found = origArr.find(e => e.date === monthName);
+    return found ? Number(found.value) : null;
+  };
+
+  // The value actually shown on a row's monthly cell: a manual override when one exists,
+  // otherwise the computed weekly rollup. The Total row of a site-tracked KPI is always the live
+  // sum of its sites' effective monthly values (so it inherits overrides from Site 1 / Site 2).
+  const getEffectiveMonthValue = (k: KPI, rowType: RowType, monthIndex: number): { value: number | null; isOverride: boolean } => {
+    const m = MONTH_WEEK_RANGES[monthIndex];
+    const siteTracked = !!(k.site1Checked || k.site2Checked);
+
+    if (rowType === 'total' && siteTracked) {
+      const r1 = k.site1Checked ? getEffectiveMonthValue(k, 'site1', monthIndex) : null;
+      const r2 = k.site2Checked ? getEffectiveMonthValue(k, 'site2', monthIndex) : null;
+      if ((r1?.value ?? null) === null && (r2?.value ?? null) === null) return { value: null, isOverride: false };
+      const sum = (r1?.value ?? 0) + (r2?.value ?? 0);
+      return { value: Number(sum.toFixed(2)), isOverride: !!(r1?.isOverride || r2?.isOverride) };
+    }
+
+    const overrideField: MonthlyField = rowType === 'site1' ? 'site1MonthlyOverrides' : rowType === 'site2' ? 'site2MonthlyOverrides' : 'monthlyOverrides';
+    const override = getMonthlyOverrideVal(k.id, m.name, overrideField);
+    if (override !== null) return { value: override, isOverride: true };
+
+    const agg = getMonthAggregate(m, (w) => getRowWeekValue(k, rowType, w));
+    return { value: agg, isOverride: false };
+  };
+
+  // Most recent month with an effective value strictly before `monthIndex`, or null if none
+  const getPrevMonthValue = (k: KPI, rowType: RowType, monthIndex: number): number | null => {
     for (let m = monthIndex - 1; m >= 0; m--) {
-      const agg = getMonthAggregate(MONTH_WEEK_RANGES[m], getWeekVal);
-      if (agg !== null) return agg;
+      const v = getEffectiveMonthValue(k, rowType, m).value;
+      if (v !== null) return v;
     }
     return null;
   };
@@ -418,6 +459,30 @@ export default function KPITeamGuruEntry({
       currentEdits.weeklyValue = totalForDate;
       currentEdits.status = evaluateStatus(totalForDate, currentEdits.target ?? kpi.target, kpi.name, kpi.category);
     }
+
+    setLocalEdits(prev => ({ ...prev, [kpiId]: currentEdits }));
+  };
+
+  // Handle a manual monthly entry. An empty value removes the override for that month, which
+  // reverts the cell back to the computed weekly rollup rather than leaving it blank.
+  const handleMonthlyChange = (kpiId: string, rowType: RowType, monthName: string, valStr: string) => {
+    const kpi = kpis.find(k => k.id === kpiId);
+    if (!kpi) return;
+
+    const field: MonthlyField = rowType === 'site1' ? 'site1MonthlyOverrides' : rowType === 'site2' ? 'site2MonthlyOverrides' : 'monthlyOverrides';
+    const currentEdits = { ...(localEdits[kpiId] || {}) };
+    const arr = [...(((currentEdits as any)[field] as { date: string; value: number }[] | undefined) || (kpi as any)[field] || [])];
+
+    const idx = arr.findIndex((e: any) => e.date === monthName);
+    if (valStr === '') {
+      if (idx !== -1) arr.splice(idx, 1);
+    } else {
+      const numValue = Number(valStr);
+      if (isNaN(numValue)) return;
+      if (idx !== -1) arr[idx] = { ...arr[idx], value: numValue };
+      else arr.push({ date: monthName, value: numValue });
+    }
+    (currentEdits as any)[field] = arr;
 
     setLocalEdits(prev => ({ ...prev, [kpiId]: currentEdits }));
   };
@@ -630,12 +695,13 @@ export default function KPITeamGuruEntry({
           )}
         </td>
 
-        {/* 6. Annual period columns: monthly rollup (read-only) or weekly detail (editable) */}
+        {/* 6. Annual period columns: monthly rollup (editable override) or weekly detail (editable) */}
         {periodMode === 'monthly' ? (
           MONTH_WEEK_RANGES.map((m, idx) => {
-            const agg = getMonthAggregate(m, getWeekVal);
-            const prev = getPrevMonthAggregate(idx, getWeekVal);
-            const status = agg !== null ? evaluateStatus(agg, liveK.target, k.name, k.category) : null;
+            const effective = getEffectiveMonthValue(k, rowType, idx);
+            const prev = getPrevMonthValue(k, rowType, idx);
+            const status = effective.value !== null ? evaluateStatus(effective.value, liveK.target, k.name, k.category) : null;
+
             return (
               <td
                 key={m.name}
@@ -643,14 +709,34 @@ export default function KPITeamGuruEntry({
                   idx === currentMonthIndex ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
                 }`}
               >
-                {agg === null ? (
-                  <span className="text-[11px] text-slate-300 dark:text-slate-600 font-mono">—</span>
-                ) : (
-                  <div className={`mx-auto w-16 flex items-center justify-center gap-1 py-1 rounded-md border font-mono font-bold text-xs ${getCellColorClass(status!)}`}>
-                    <span>{agg}</span>
-                    {getTrendIcon(agg, prev, isLowerBetterRow)}
-                  </div>
-                )}
+                <div className="relative w-16 mx-auto">
+                  <input
+                    type="text"
+                    value={effective.value ?? ''}
+                    placeholder="—"
+                    readOnly={!editable}
+                    disabled={!editable}
+                    title={effective.isOverride ? 'Saisie manuelle — effacez pour revenir au cumul hebdomadaire' : 'Cumul hebdomadaire calculé'}
+                    onChange={(e) => handleMonthlyChange(k.id, rowType, m.name, e.target.value)}
+                    className={`w-full text-center py-1 border rounded-md font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
+                      !editable
+                        ? 'bg-slate-100 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-850'
+                        : status
+                          ? getCellColorClass(status)
+                          : 'bg-slate-50/50 dark:bg-slate-900/20 text-slate-300 dark:text-slate-700 border-slate-100 dark:border-slate-850'
+                    }`}
+                  />
+                  {effective.value !== null && (
+                    <span className="absolute -top-1 -right-1 bg-white dark:bg-slate-900 rounded-full">
+                      {getTrendIcon(effective.value, prev, isLowerBetterRow)}
+                    </span>
+                  )}
+                  {editable && effective.isOverride && (
+                    <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-px" title="Saisie manuelle">
+                      <Pencil className="w-2.5 h-2.5 text-blue-500" />
+                    </span>
+                  )}
+                </div>
               </td>
             );
           })
@@ -964,7 +1050,11 @@ export default function KPITeamGuruEntry({
       <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-6 py-3 shrink-0 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
         <div className="flex items-center gap-1.5 font-medium">
           <Info className="w-3.5 h-3.5 text-blue-500" />
-          <span>Passez en "Détail par Site" pour saisir Site 1 / Site 2 semaine par semaine — le Total se recalcule automatiquement.</span>
+          <span>
+            En vue Mensuelle, une saisie manuelle (
+            <Pencil className="w-2.5 h-2.5 inline text-blue-500" />
+            ) prime sur le cumul hebdomadaire — effacez-la pour revenir au calcul automatique.
+          </span>
         </div>
         <div className="font-mono text-[10px]">
           Site 1 + Site 2 = Total Automatique

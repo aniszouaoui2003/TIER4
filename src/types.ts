@@ -60,6 +60,11 @@ export interface KPI {
   // Per-site weekly history ("Semaine N" labels), independent from the combined `history` above.
   site1History?: { date: string; value: number }[];
   site2History?: { date: string; value: number }[];
+  // Manual monthly entries (month-name labels) that override the computed weekly rollup for
+  // that month. Removing an entry here reverts the cell to the computed weekly average.
+  monthlyOverrides?: { date: string; value: number }[];
+  site1MonthlyOverrides?: { date: string; value: number }[];
+  site2MonthlyOverrides?: { date: string; value: number }[];
 }
 
 export interface ActionAttachment {

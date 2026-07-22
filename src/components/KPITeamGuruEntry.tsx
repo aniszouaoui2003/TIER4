@@ -638,7 +638,12 @@ export default function KPITeamGuruEntry({
     const rowBg = isModified
       ? 'bg-blue-50/20 dark:bg-blue-950/5'
       : rowTint;
-    const rowClass = `grid hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all border-b border-slate-150 dark:border-slate-800 text-xs min-h-[52px] ${rowBg} ${
+    // A fixed (not min-) height, identical on both panels, is what keeps them pixel-aligned:
+    // the left panel's KPI name can wrap to several lines, and since the two panels are separate
+    // DOM trees stacked independently, any difference in a row's rendered height between them
+    // accumulates into a growing offset for every row after it. overflow-hidden clips the rare
+    // row whose content doesn't fit rather than letting it grow taller than its counterpart.
+    const rowClass = `grid hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all border-b border-slate-150 dark:border-slate-800 text-xs h-36 overflow-hidden ${rowBg} ${
       startsGroup ? 'border-t-2 border-t-slate-200 dark:border-t-slate-800' : ''
     }`;
 
@@ -652,7 +657,7 @@ export default function KPITeamGuruEntry({
         </div>
 
         {/* 2. Name & Owner */}
-        <div className="py-2.5 px-4">
+        <div className="py-2.5 px-4 flex flex-col justify-center overflow-hidden">
           <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug flex flex-wrap items-center gap-1.5">
             {rowType === 'total' && bothSites && <Sigma className="w-3 h-3 text-slate-400 shrink-0" title="Total = Site 1 + Site 2" />}
             <span>{k.name}</span>
@@ -1064,7 +1069,12 @@ export default function KPITeamGuruEntry({
                     )}
                   </div>
                 </div>
-                <div className="overflow-x-auto teamguru-scroll rounded-br-xl" onScroll={handleRightPanelScroll}>
+                {/* overflow-y-hidden is required here, not just omitted: per the CSS overflow
+                    spec, setting only overflow-x makes overflow-y computed as 'auto' too, which
+                    would silently turn this into a second, independent vertical scroll container
+                    competing with the page's — the exact cause of the stray content appearing
+                    above the sticky header while scrolling. */}
+                <div className="overflow-x-auto overflow-y-hidden teamguru-scroll rounded-br-xl" onScroll={handleRightPanelScroll}>
                   {rows.map(r => r.right)}
                 </div>
               </div>

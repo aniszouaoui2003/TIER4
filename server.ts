@@ -227,8 +227,7 @@ async function readDB(): Promise<DataStoreSchema> {
     if (data) {
       let modified = false;
 
-      // Always enforce the updated INITIAL_USERS list to replace old ones
-      if (JSON.stringify(data.users) !== JSON.stringify(INITIAL_USERS)) {
+      if (!data.users || data.users.length === 0) {
         data.users = INITIAL_USERS;
         modified = true;
       }

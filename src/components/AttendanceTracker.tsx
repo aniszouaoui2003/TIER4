@@ -16,7 +16,9 @@ import {
   RotateCcw,
   Sparkles,
   Copy,
-  Info
+  Info,
+  UserPlus,
+  Trash2
 } from 'lucide-react';
 import {
   AreaChart,
@@ -105,37 +107,42 @@ export default function AttendanceTracker({
     fetchAttendance();
   }, []);
 
+  // Default roster for a week that has never been saved: every non-Viewer/Admin user,
+  // marked Présent. Shared by the sync effect below and by handleAddParticipant.
+  const buildDefaultRecords = (): AttendanceRecord[] =>
+    users
+      .filter(u => u.role !== 'Viewer' && u.role !== 'Admin')
+      .map(u => {
+        let shortRole = u.role as string;
+        if (u.role === 'DGA (Administrateur)') shortRole = 'DGA';
+        else if (u.role === 'directeur QHSE') shortRole = 'QHSE';
+        else if (u.role === 'DRH') shortRole = 'DRH';
+        else if (u.role === 'Responsable de production') shortRole = 'Prod';
+        else if (u.role === 'Directeur Export') shortRole = 'Export';
+        else if (u.role === 'Directeur Compta&contrôle de gestion') shortRole = 'CG';
+        else if (u.role === 'Directeur technique') shortRole = 'Tech';
+        else if (u.role === 'DAF') shortRole = 'DAF';
+
+        return {
+          userId: u.id,
+          userName: u.name,
+          userRole: shortRole,
+          userDepartment: u.department || 'Usine Officeplast',
+          status: 'Présent' as AttendanceStatus
+        };
+      });
+
+  // The roster this week actually started from (saved data, or the default roster) — kept
+  // separately from localRecords so isModified() can detect added/removed participants too,
+  // not just status changes.
+  const [baselineRecords, setBaselineRecords] = useState<AttendanceRecord[]>([]);
+
   // Sync localRecords when selectedWeek or attendanceData changes
   useEffect(() => {
     const existing = attendanceData.find(a => a.week === selectedWeek);
-    if (existing) {
-      setLocalRecords(existing.records);
-    } else {
-      // Build fallback default list from users
-      // Exclude Admin from standard attendance tracking if you like, but let's include all standard participants
-      const defaultRecords: AttendanceRecord[] = users
-        .filter(u => u.role !== 'Viewer' && u.role !== 'Admin') // Only tracking active roles
-        .map(u => {
-          let shortRole = u.role as string;
-          if (u.role === 'DGA (Administrateur)') shortRole = 'DGA';
-          else if (u.role === 'directeur QHSE') shortRole = 'QHSE';
-          else if (u.role === 'DRH') shortRole = 'DRH';
-          else if (u.role === 'Responsable de production') shortRole = 'Prod';
-          else if (u.role === 'Directeur Export') shortRole = 'Export';
-          else if (u.role === 'Directeur Compta&contrôle de gestion') shortRole = 'CG';
-          else if (u.role === 'Directeur technique') shortRole = 'Tech';
-          else if (u.role === 'DAF') shortRole = 'DAF';
-
-          return {
-            userId: u.id,
-            userName: u.name,
-            userRole: shortRole,
-            userDepartment: u.department || 'Usine Officeplast',
-            status: 'Présent' as AttendanceStatus
-          };
-        });
-      setLocalRecords(defaultRecords);
-    }
+    const records = existing ? existing.records : buildDefaultRecords();
+    setLocalRecords(records);
+    setBaselineRecords(records);
   }, [selectedWeek, attendanceData, users]);
 
   // Handle status toggle for a user
@@ -143,6 +150,39 @@ export default function AttendanceTracker({
     setLocalRecords(prev =>
       prev.map(rec => (rec.userId === userId ? { ...rec, status: newStatus } : rec))
     );
+  };
+
+  // Add a participant to this week's roster only — the record is a standalone snapshot
+  // (not a live reference to the user), so past/other weeks are never affected.
+  const handleAddParticipant = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+
+    let shortRole = user.role as string;
+    if (user.role === 'DGA (Administrateur)') shortRole = 'DGA';
+    else if (user.role === 'directeur QHSE') shortRole = 'QHSE';
+    else if (user.role === 'DRH') shortRole = 'DRH';
+    else if (user.role === 'Responsable de production') shortRole = 'Prod';
+    else if (user.role === 'Directeur Export') shortRole = 'Export';
+    else if (user.role === 'Directeur Compta&contrôle de gestion') shortRole = 'CG';
+    else if (user.role === 'Directeur technique') shortRole = 'Tech';
+    else if (user.role === 'DAF') shortRole = 'DAF';
+
+    setLocalRecords(prev => [
+      ...prev,
+      {
+        userId: user.id,
+        userName: user.name,
+        userRole: shortRole,
+        userDepartment: user.department || 'Usine Officeplast',
+        status: 'Présent'
+      }
+    ]);
+  };
+
+  // Remove a participant from this week's roster only
+  const handleRemoveParticipant = (userId: string) => {
+    setLocalRecords(prev => prev.filter(rec => rec.userId !== userId));
   };
 
   // Quick Action: Mark all present
@@ -233,12 +273,7 @@ export default function AttendanceTracker({
   // Discard local changes
   const handleDiscard = () => {
     if (confirm('Voulez-vous annuler vos modifications non enregistrées ?')) {
-      const existing = attendanceData.find(a => a.week === selectedWeek);
-      if (existing) {
-        setLocalRecords(existing.records);
-      } else {
-        setLocalRecords(localRecords.map(r => ({ ...r, status: 'Présent' })));
-      }
+      setLocalRecords(baselineRecords);
     }
   };
 
@@ -266,12 +301,9 @@ export default function AttendanceTracker({
     })
     .sort((a, b) => getWeekNum(a.name) - getWeekNum(b.name));
 
-  // Check if anything has been modified compared to saved state
-  const isModified = () => {
-    const saved = attendanceData.find(a => a.week === selectedWeek);
-    if (!saved) return localRecords.some(r => r.status !== 'Présent'); // True if we altered defaults
-    return JSON.stringify(saved.records) !== JSON.stringify(localRecords);
-  };
+  // Check if anything has been modified compared to the roster this week started from —
+  // covers status changes as well as added/removed participants.
+  const isModified = () => JSON.stringify(baselineRecords) !== JSON.stringify(localRecords);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden" id="presence-tracker-root">
@@ -522,6 +554,30 @@ export default function AttendanceTracker({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Add a participant to this week's roster only */}
+            {(() => {
+              const availableToAdd = users.filter(u => !localRecords.some(r => r.userId === u.id));
+              if (availableToAdd.length === 0) return null;
+              return (
+                <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-lg px-2 py-1">
+                  <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) handleAddParticipant(e.target.value); }}
+                    className="bg-transparent border-none text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-none cursor-pointer max-w-40"
+                    title="Ajouter un participant pour cette semaine"
+                  >
+                    <option value="" disabled>Ajouter un participant…</option>
+                    {availableToAdd.map(u => (
+                      <option key={u.id} value={u.id} className="bg-white dark:bg-slate-900 font-sans font-medium">
+                        {u.name} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
+
             <button
               onClick={handleMarkAllPresent}
               className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold transition-all"
@@ -559,6 +615,7 @@ export default function AttendanceTracker({
                 <th className="py-3 px-4">Fonction / Rôle</th>
                 <th className="py-3 px-4">Département</th>
                 <th className="py-3 px-6 text-center w-80">Statut Hebdomadaire</th>
+                <th className="py-3 px-4 text-center w-16">Actions</th>
               </tr>
             </thead>
 
@@ -661,6 +718,18 @@ export default function AttendanceTracker({
                         </button>
 
                       </div>
+                    </td>
+
+                    {/* Remove from this week's roster */}
+                    <td className="py-3 px-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveParticipant(rec.userId)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 rounded-lg transition-all"
+                        title="Retirer ce participant pour cette semaine"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </td>
 
                   </tr>

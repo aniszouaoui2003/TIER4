@@ -24,6 +24,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { KPI, KPIStatus, User } from '../types';
+import { CURRENT_YEAR, CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
 
 interface KPITeamGuruEntryProps {
   kpis: KPI[];
@@ -55,15 +56,6 @@ const FORMULA_KPI_IDS = [
   'kpi-cost-taux-dechet',
   'kpi-rh-presence'
 ];
-
-// Standard ISO-8601 week number for a given date (week containing that date's Thursday).
-const getISOWeek = (date: Date): number => {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-};
 
 export default function KPITeamGuruEntry({
   kpis,
@@ -112,24 +104,7 @@ export default function KPITeamGuruEntry({
   const handleRightPanelScroll = (e: React.UIEvent<HTMLDivElement>) => syncHorizontalScroll(e.currentTarget.scrollLeft, 'body');
   const handleBottomBarScroll = (e: React.UIEvent<HTMLDivElement>) => syncHorizontalScroll(e.currentTarget.scrollLeft, 'bar');
 
-  // The "current" week is today's real ISO-8601 week number, not a value frozen at the
-  // demo's original seed date (weeks 23-26 / late June) — it moves forward as time passes.
-  const CURRENT_YEAR = 2026;
-  const CURRENT_WEEK = getISOWeek(new Date());
-
-  // 52-week annual axis, grouped into 12 months (4 or 5 weeks each, summing to 52)
-  const MONTH_NAMES = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
-  const WEEKS_PER_MONTH = [4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4, 5];
-  const MONTH_WEEK_RANGES: { name: string; weeks: number[] }[] = (() => {
-    let start = 1;
-    return MONTH_NAMES.map((name, i) => {
-      const count = WEEKS_PER_MONTH[i];
-      const weeks = Array.from({ length: count }, (_, k) => start + k);
-      start += count;
-      return { name, weeks };
-    });
-  })();
-  const currentMonthIndex = MONTH_WEEK_RANGES.findIndex(m => m.weeks.includes(CURRENT_WEEK));
+  const currentMonthIndex = getMonthIndexForWeek(CURRENT_WEEK);
   const allWeeks = Array.from({ length: 52 }, (_, i) => i + 1);
 
   // Categories list

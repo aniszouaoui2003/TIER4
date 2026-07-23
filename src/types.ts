@@ -162,3 +162,16 @@ export interface WeeklyAttendance {
   records: AttendanceRecord[];
 }
 
+export interface GembaRecord {
+  userId: string;
+  userName: string;
+  userRole: string;
+  userDepartment: string;
+  count: number; // Gemba walks done by this person during that specific week
+}
+
+export interface WeeklyGemba {
+  week: string;
+  records: GembaRecord[];
+}
+

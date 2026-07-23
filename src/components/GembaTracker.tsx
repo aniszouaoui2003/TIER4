@@ -5,11 +5,9 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Users,
+  Footprints,
   Calendar,
-  Check,
-  X,
-  Award,
+  Target,
   AlertCircle,
   TrendingUp,
   Save,
@@ -18,7 +16,9 @@ import {
   Copy,
   Info,
   UserPlus,
-  Trash2
+  Trash2,
+  Check,
+  Pencil
 } from 'lucide-react';
 import {
   AreaChart,
@@ -29,30 +29,48 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { User, WeeklyAttendance, AttendanceRecord, AttendanceStatus } from '../types';
+import { User, WeeklyGemba, GembaRecord } from '../types';
 import { CURRENT_YEAR, CURRENT_WEEK, MONTH_WEEK_RANGES, getWeekNum } from '../utils/weekCalendar';
 
-interface AttendanceTrackerProps {
+interface GembaTrackerProps {
   users: User[];
   currentUser: User;
   onRefreshData: () => Promise<void>;
 }
 
-export default function AttendanceTracker({
+const shortRoleFor = (role: string): string => {
+  if (role === 'DGA (Administrateur)') return 'DGA';
+  if (role === 'directeur QHSE') return 'QHSE';
+  if (role === 'DRH') return 'DRH';
+  if (role === 'Responsable de production') return 'Prod';
+  if (role === 'Directeur Export') return 'Export';
+  if (role === 'Directeur Compta&contrôle de gestion') return 'CG';
+  if (role === 'Directeur technique') return 'Tech';
+  if (role === 'DAF') return 'DAF';
+  return role;
+};
+
+export default function GembaTracker({
   users,
   currentUser,
   onRefreshData
-}: AttendanceTrackerProps) {
+}: GembaTrackerProps) {
   const [selectedWeek, setSelectedWeek] = useState<string>(`Semaine ${CURRENT_WEEK}`);
-  const selectedMonthIndex = MONTH_WEEK_RANGES.findIndex(m => m.weeks.includes(getWeekNum(selectedWeek)));
+  const selectedWeekNum = getWeekNum(selectedWeek);
+  const selectedMonthIndex = MONTH_WEEK_RANGES.findIndex(m => m.weeks.includes(selectedWeekNum));
+  const monthRange = MONTH_WEEK_RANGES[selectedMonthIndex];
 
-  // All weekly attendance data fetched from API
-  const [attendanceData, setAttendanceData] = useState<WeeklyAttendance[]>([]);
+  // All weekly Gemba data fetched from API, plus the configurable monthly objective per person
+  const [gembaData, setGembaData] = useState<WeeklyGemba[]>([]);
+  const [monthlyTarget, setMonthlyTarget] = useState<number>(2);
+  const [targetInput, setTargetInput] = useState<string>('2');
+
   // Local edited records for the selected week
-  const [localRecords, setLocalRecords] = useState<AttendanceRecord[]>([]);
+  const [localRecords, setLocalRecords] = useState<GembaRecord[]>([]);
+  const [baselineRecords, setBaselineRecords] = useState<GembaRecord[]>([]);
 
-  const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+  const [savingTarget, setSavingTarget] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -61,95 +79,64 @@ export default function AttendanceTracker({
     setSelectedWeek(`Semaine ${MONTH_WEEK_RANGES[monthIndex].weeks[0]}`);
   };
 
-  // Load attendance data on mount
-  const fetchAttendance = async () => {
-    setLoading(true);
+  // Load Gemba data + objective on mount
+  const fetchGemba = async () => {
     try {
-      const response = await fetch('/api/attendance');
+      const response = await fetch('/api/gemba');
       if (response.ok) {
-        const data: WeeklyAttendance[] = await response.json();
-        setAttendanceData(data);
+        const data: { records: WeeklyGemba[]; monthlyTarget: number } = await response.json();
+        setGembaData(data.records);
+        setMonthlyTarget(data.monthlyTarget);
+        setTargetInput(String(data.monthlyTarget));
       }
     } catch (err) {
-      console.error('Failed to fetch attendance data:', err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch Gemba data:', err);
     }
   };
 
   useEffect(() => {
-    fetchAttendance();
+    fetchGemba();
   }, []);
 
-  // Default roster for a week that has never been saved: every non-Viewer/Admin user,
-  // marked Présent. Shared by the sync effect below and by handleAddParticipant.
-  const buildDefaultRecords = (): AttendanceRecord[] =>
+  // Default roster for a week that has never been saved: every non-Viewer/Admin user, at 0
+  const buildDefaultRecords = (): GembaRecord[] =>
     users
       .filter(u => u.role !== 'Viewer' && u.role !== 'Admin')
-      .map(u => {
-        let shortRole = u.role as string;
-        if (u.role === 'DGA (Administrateur)') shortRole = 'DGA';
-        else if (u.role === 'directeur QHSE') shortRole = 'QHSE';
-        else if (u.role === 'DRH') shortRole = 'DRH';
-        else if (u.role === 'Responsable de production') shortRole = 'Prod';
-        else if (u.role === 'Directeur Export') shortRole = 'Export';
-        else if (u.role === 'Directeur Compta&contrôle de gestion') shortRole = 'CG';
-        else if (u.role === 'Directeur technique') shortRole = 'Tech';
-        else if (u.role === 'DAF') shortRole = 'DAF';
+      .map(u => ({
+        userId: u.id,
+        userName: u.name,
+        userRole: shortRoleFor(u.role as string),
+        userDepartment: u.department || 'Usine Officeplast',
+        count: 0
+      }));
 
-        return {
-          userId: u.id,
-          userName: u.name,
-          userRole: shortRole,
-          userDepartment: u.department || 'Usine Officeplast',
-          status: 'Présent' as AttendanceStatus
-        };
-      });
-
-  // The roster this week actually started from (saved data, or the default roster) — kept
-  // separately from localRecords so isModified() can detect added/removed participants too,
-  // not just status changes.
-  const [baselineRecords, setBaselineRecords] = useState<AttendanceRecord[]>([]);
-
-  // Sync localRecords when selectedWeek or attendanceData changes
+  // Sync localRecords when selectedWeek or gembaData changes
   useEffect(() => {
-    const existing = attendanceData.find(a => a.week === selectedWeek);
+    const existing = gembaData.find(g => g.week === selectedWeek);
     const records = existing ? existing.records : buildDefaultRecords();
     setLocalRecords(records);
     setBaselineRecords(records);
-  }, [selectedWeek, attendanceData, users]);
+  }, [selectedWeek, gembaData, users]);
 
-  // Handle status toggle for a user
-  const handleStatusChange = (userId: string, newStatus: AttendanceStatus) => {
-    setLocalRecords(prev =>
-      prev.map(rec => (rec.userId === userId ? { ...rec, status: newStatus } : rec))
-    );
+  // Update this week's Gemba count for one person
+  const handleCountChange = (userId: string, valStr: string) => {
+    const count = valStr === '' ? 0 : Math.max(0, Math.round(Number(valStr)));
+    if (isNaN(count)) return;
+    setLocalRecords(prev => prev.map(rec => (rec.userId === userId ? { ...rec, count } : rec)));
   };
 
-  // Add a participant to this week's roster only — the record is a standalone snapshot
-  // (not a live reference to the user), so past/other weeks are never affected.
+  // Add a participant to this week's roster only
   const handleAddParticipant = (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-
-    let shortRole = user.role as string;
-    if (user.role === 'DGA (Administrateur)') shortRole = 'DGA';
-    else if (user.role === 'directeur QHSE') shortRole = 'QHSE';
-    else if (user.role === 'DRH') shortRole = 'DRH';
-    else if (user.role === 'Responsable de production') shortRole = 'Prod';
-    else if (user.role === 'Directeur Export') shortRole = 'Export';
-    else if (user.role === 'Directeur Compta&contrôle de gestion') shortRole = 'CG';
-    else if (user.role === 'Directeur technique') shortRole = 'Tech';
-    else if (user.role === 'DAF') shortRole = 'DAF';
-
     setLocalRecords(prev => [
       ...prev,
       {
         userId: user.id,
         userName: user.name,
-        userRole: shortRole,
+        userRole: shortRoleFor(user.role as string),
         userDepartment: user.department || 'Usine Officeplast',
-        status: 'Présent'
+        count: 0
       }
     ]);
   };
@@ -159,24 +146,21 @@ export default function AttendanceTracker({
     setLocalRecords(prev => prev.filter(rec => rec.userId !== userId));
   };
 
-  // Quick Action: Mark all present
-  const handleMarkAllPresent = () => {
-    setLocalRecords(prev => prev.map(rec => ({ ...rec, status: 'Présent' })));
+  // Quick Action: reset every count this week to 0
+  const handleResetToZero = () => {
+    setLocalRecords(prev => prev.map(rec => ({ ...rec, count: 0 })));
   };
 
-  // Quick Action: Copy from previous week
+  // Quick Action: copy counts from the previous week
   const handleCopyPreviousWeek = () => {
-    const currentWeekNum = getWeekNum(selectedWeek);
-    if (currentWeekNum <= 1) return;
+    if (selectedWeekNum <= 1) return;
+    const prevWeekName = `Semaine ${selectedWeekNum - 1}`;
+    const previous = gembaData.find(g => g.week === prevWeekName);
 
-    const prevWeekName = `Semaine ${currentWeekNum - 1}`;
-    const previous = attendanceData.find(a => a.week === prevWeekName);
-    
     if (previous) {
-      // Copy statuses from previous week records
       const updated = localRecords.map(rec => {
         const prevRec = previous.records.find(p => p.userId === rec.userId);
-        return prevRec ? { ...rec, status: prevRec.status } : rec;
+        return prevRec ? { ...rec, count: prevRec.count } : rec;
       });
       setLocalRecords(updated);
       setSuccessMsg(`Modèle copié avec succès de la ${prevWeekName}.`);
@@ -187,114 +171,142 @@ export default function AttendanceTracker({
     }
   };
 
-  // Quick Action: Simulate randomly near targets
+  // Quick Action: simulate realistic-looking demo counts (mostly 0-1, occasionally 2)
   const handleSimulateRandom = () => {
-    const statuses: AttendanceStatus[] = ['Présent', 'Absent', 'Délégué'];
     const updated = localRecords.map(rec => {
-      // 80% chance Present, 10% Absent, 10% Delegate
       const rand = Math.random();
-      let status: AttendanceStatus = 'Présent';
-      if (rand > 0.9) {
-        status = 'Absent';
-      } else if (rand > 0.8) {
-        status = 'Délégué';
-      }
-      return { ...rec, status };
+      const count = rand > 0.85 ? 2 : rand > 0.4 ? 1 : 0;
+      return { ...rec, count };
     });
     setLocalRecords(updated);
   };
 
-  // Save changes to backend
+  // Save this week's counts to backend — the server recomputes the cumulative-vs-objective
+  // rate for the whole month and injects it into the "Suivi de Gemba HSE" KPI.
   const handleSave = async () => {
     setSaving(true);
     setErrorMsg(null);
     setSuccessMsg(null);
-    
+
     try {
-      const response = await fetch('/api/attendance', {
+      const response = await fetch('/api/gemba', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          week: selectedWeek,
-          records: localRecords
-        })
+        body: JSON.stringify({ week: selectedWeek, records: localRecords })
       });
 
       if (response.ok) {
-        const result = await response.json();
-        setSuccessMsg(`Taux de présence calculé à ${result.calculatedRate}% et injecté automatiquement dans l'indicateur SQCDP !`);
-        
-        // Refresh full data context in App.tsx
+        setSuccessMsg('Gemba de la semaine enregistrés — taux cumulé recalculé et injecté dans le KPI SQCDP !');
         await onRefreshData();
-        // Refresh local attendance data
-        await fetchAttendance();
-
-        setTimeout(() => {
-          setSuccessMsg(null);
-        }, 5000);
+        await fetchGemba();
+        setTimeout(() => setSuccessMsg(null), 5000);
       } else {
         const errData = await response.json();
         setErrorMsg(errData.error || "Erreur lors de l'enregistrement.");
       }
     } catch (err) {
-      console.error('Failed to save attendance:', err);
-      setErrorMsg("Impossible de se connecter au serveur pour enregistrer les présences.");
+      console.error('Failed to save Gemba data:', err);
+      setErrorMsg('Impossible de se connecter au serveur pour enregistrer les Gemba.');
     } finally {
       setSaving(false);
     }
   };
 
-  // Discard local changes
   const handleDiscard = () => {
     if (confirm('Voulez-vous annuler vos modifications non enregistrées ?')) {
       setLocalRecords(baselineRecords);
     }
   };
 
-  // Calculate stats for current local records
-  const totalUsers = localRecords.length;
-  const presentCount = localRecords.filter(r => r.status === 'Présent').length;
-  const absentCount = localRecords.filter(r => r.status === 'Absent').length;
-  const delegateCount = localRecords.filter(r => r.status === 'Délégué').length;
-  
-  // Present + Delegate count as 100% presence representation for the department
-  const representedCount = presentCount + delegateCount;
-  const presenceRate = totalUsers > 0 ? Math.round((representedCount / totalUsers) * 100) : 100;
+  // Save the monthly objective per person
+  const handleSaveTarget = async () => {
+    const target = Number(targetInput);
+    if (isNaN(target) || target <= 0) {
+      setErrorMsg('Objectif mensuel invalide.');
+      return;
+    }
+    setSavingTarget(true);
+    try {
+      const response = await fetch('/api/gemba-target', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target })
+      });
+      if (response.ok) {
+        setMonthlyTarget(target);
+        setSuccessMsg(`Objectif mensuel mis à jour : ${target} Gemba par personne.`);
+        setTimeout(() => setSuccessMsg(null), 3500);
+      } else {
+        const errData = await response.json();
+        setErrorMsg(errData.error || "Erreur lors de la mise à jour de l'objectif.");
+      }
+    } catch (err) {
+      console.error('Failed to update Gemba target:', err);
+      setErrorMsg("Impossible de se connecter au serveur pour modifier l'objectif.");
+    } finally {
+      setSavingTarget(false);
+    }
+  };
 
-  // Prepare chart data for the recorded weeks that fall within the selected month only,
-  // so the trend follows the Année/Mois/Semaine filter instead of always showing everything.
-  const monthWeekSet = new Set(MONTH_WEEK_RANGES[selectedMonthIndex].weeks);
-  const chartData = attendanceData
-    .filter(dataForWeek => monthWeekSet.has(getWeekNum(dataForWeek.week)))
-    .map(dataForWeek => {
-      const recs = dataForWeek.records;
-      const tot = recs.length;
-      const rep = recs.filter(r => r.status === 'Présent' || r.status === 'Délégué').length;
-      const rate = tot > 0 ? Math.round((rep / tot) * 100) : 100;
-      return { name: dataForWeek.week, 'Taux de Présence': rate };
-    })
-    .sort((a, b) => getWeekNum(a.name) - getWeekNum(b.name));
+  // Cumulative count per person, from the start of the selected month through the selected
+  // week (inclusive) — saved data for other weeks, live local edits for the selected week.
+  const cumulativePerPerson = new Map<string, number>();
+  for (const w of monthRange.weeks) {
+    if (w > selectedWeekNum) break;
+    const label = `Semaine ${w}`;
+    const recs = label === selectedWeek ? localRecords : gembaData.find(g => g.week === label)?.records;
+    if (!recs) continue;
+    recs.forEach(r => {
+      cumulativePerPerson.set(r.userId, (cumulativePerPerson.get(r.userId) || 0) + (Number(r.count) || 0));
+    });
+  }
 
-  // Check if anything has been modified compared to the roster this week started from —
-  // covers status changes as well as added/removed participants.
+  const totalPeople = localRecords.length;
+  const achievedPoints = localRecords.reduce(
+    (sum, r) => sum + Math.min(cumulativePerPerson.get(r.userId) || 0, monthlyTarget),
+    0
+  );
+  const cumulativeRate = totalPeople > 0 ? Math.round((achievedPoints / (monthlyTarget * totalPeople)) * 100) : 100;
+  const peopleAtTarget = localRecords.filter(r => (cumulativePerPerson.get(r.userId) || 0) >= monthlyTarget).length;
+  const peopleBehind = totalPeople - peopleAtTarget;
+  const totalGembaThisMonth = Array.from(cumulativePerPerson.values()).reduce((a, b) => a + b, 0);
+
+  // Trend chart: cumulative rate at each recorded week of the selected month
+  const chartData = (() => {
+    const cum = new Map<string, number>();
+    const points: { name: string; 'Cumul Gemba (%)': number }[] = [];
+    for (const w of monthRange.weeks) {
+      const label = `Semaine ${w}`;
+      const saved = gembaData.find(g => g.week === label);
+      if (!saved) continue;
+      saved.records.forEach(r => cum.set(r.userId, (cum.get(r.userId) || 0) + (Number(r.count) || 0)));
+      const total = saved.records.length;
+      const achieved = saved.records.reduce((sum, r) => sum + Math.min(cum.get(r.userId) || 0, monthlyTarget), 0);
+      const rate = total > 0 ? Math.round((achieved / (monthlyTarget * total)) * 100) : 100;
+      points.push({ name: label, 'Cumul Gemba (%)': rate });
+    }
+    return points;
+  })();
+
   const isModified = () => JSON.stringify(baselineRecords) !== JSON.stringify(localRecords);
+  const targetIsModified = Number(targetInput) !== monthlyTarget && !isNaN(Number(targetInput)) && Number(targetInput) > 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden" id="presence-tracker-root">
-      
+    <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden" id="gemba-tracker-root">
+
       {/* Header Panel */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between shrink-0 gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 rounded-md">
-              <Users className="w-5 h-5" />
+            <span className="p-1.5 bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400 rounded-md">
+              <Footprints className="w-5 h-5" />
             </span>
             <h1 className="font-display font-bold text-lg text-slate-900 dark:text-white uppercase tracking-tight">
-              Matrice de Présence & Assiduité
+              Suivi Gemba HSE
             </h1>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Gérez le suivi d'assiduité hebdomadaire au rituel Tier 4 par fonction et injectez automatiquement le taux calculé dans les KPI SQCDP.
+            Suivez les Gemba Walks hebdomadaires par personne et injectez automatiquement le taux cumulé mensuel dans le KPI SQCDP.
           </p>
         </div>
 
@@ -322,7 +334,7 @@ export default function AttendanceTracker({
               onChange={(e) => setSelectedWeek(e.target.value)}
               className="bg-transparent border-none text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none pr-6 py-0.5 cursor-pointer"
             >
-              {MONTH_WEEK_RANGES[selectedMonthIndex].weeks.map(w => (
+              {monthRange.weeks.map(w => (
                 <option key={w} value={`Semaine ${w}`} className="bg-white dark:bg-slate-900 font-sans font-medium">
                   Semaine {w}{w === CURRENT_WEEK ? ' (actuelle)' : ''}
                 </option>
@@ -344,7 +356,7 @@ export default function AttendanceTracker({
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all disabled:opacity-50"
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all disabled:opacity-50"
               >
                 {saving ? (
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -378,34 +390,33 @@ export default function AttendanceTracker({
 
         {/* Dashboard Stats Panel & Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
+
           {/* Quick Metrics Cards */}
           <div className="space-y-4">
-            
-            {/* calculated presence rate */}
+
+            {/* Cumulative rate gauge */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-2xs flex items-center justify-between">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Taux de Présence - {selectedWeek}
+                  Cumul Mensuel - {selectedWeek}
                 </span>
                 <div className="flex items-baseline gap-1 mt-1">
                   <span className="text-3xl font-display font-extrabold text-slate-900 dark:text-white">
-                    {presenceRate}%
+                    {cumulativeRate}%
                   </span>
                   <span className="text-xs font-mono font-bold text-slate-400">/ 100% Cible</span>
                 </div>
                 <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500 font-medium">
-                  {presenceRate >= 100 ? (
+                  {cumulativeRate >= 100 ? (
                     <span className="text-emerald-600 font-bold">● Objectif Atteint (100%)</span>
-                  ) : presenceRate >= 90 ? (
-                    <span className="text-amber-600 font-bold">● Vigilance (90-99%)</span>
+                  ) : cumulativeRate >= 70 ? (
+                    <span className="text-amber-600 font-bold">● Vigilance (70-99%)</span>
                   ) : (
-                    <span className="text-rose-600 font-bold">● Alerte (&lt;90%)</span>
+                    <span className="text-rose-600 font-bold">● Alerte (&lt;70%)</span>
                   )}
                 </div>
               </div>
 
-              {/* Minimalist Gauge Circle */}
               <div className="relative w-16 h-16 shrink-0">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                   <path
@@ -417,13 +428,9 @@ export default function AttendanceTracker({
                   />
                   <path
                     className={
-                      presenceRate >= 100
-                        ? 'text-emerald-500'
-                        : presenceRate >= 90
-                        ? 'text-amber-500'
-                        : 'text-rose-500'
+                      cumulativeRate >= 100 ? 'text-emerald-500' : cumulativeRate >= 70 ? 'text-amber-500' : 'text-rose-500'
                     }
-                    strokeDasharray={`${presenceRate}, 100`}
+                    strokeDasharray={`${Math.min(cumulativeRate, 100)}, 100`}
                     strokeWidth="3.5"
                     strokeLinecap="round"
                     stroke="currentColor"
@@ -432,84 +439,100 @@ export default function AttendanceTracker({
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center font-mono text-xs font-extrabold text-slate-850 dark:text-slate-200">
-                  {presenceRate}%
+                  {cumulativeRate}%
                 </div>
               </div>
             </div>
 
-            {/* Attendance breakdown counters */}
+            {/* Breakdown counters */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-2xs">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-3">
-                Répartition des Statuts
+                Bilan du Mois — {MONTH_WEEK_RANGES[selectedMonthIndex].name} {CURRENT_YEAR}
               </span>
               <div className="grid grid-cols-3 gap-2">
-                
-                {/* Present card */}
                 <div className="bg-emerald-50/50 dark:bg-emerald-950/15 border border-emerald-100 dark:border-emerald-900/30 rounded-lg p-2.5 text-center">
-                  <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 block">Présents</span>
+                  <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 block">À l'objectif</span>
                   <span className="text-xl font-display font-black text-emerald-900 dark:text-emerald-300 mt-1 block">
-                    {presentCount}
+                    {peopleAtTarget}
                   </span>
                 </div>
-
-                {/* Delegated card */}
-                <div className="bg-sky-50/50 dark:bg-sky-950/15 border border-sky-100 dark:border-sky-900/30 rounded-lg p-2.5 text-center">
-                  <span className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 block">Délégués</span>
-                  <span className="text-xl font-display font-black text-sky-900 dark:text-sky-300 mt-1 block">
-                    {delegateCount}
-                  </span>
-                </div>
-
-                {/* Absent card */}
                 <div className="bg-rose-50/50 dark:bg-rose-950/15 border border-rose-100 dark:border-rose-900/30 rounded-lg p-2.5 text-center">
-                  <span className="text-[10px] font-semibold text-rose-700 dark:text-rose-400 block">Absents</span>
+                  <span className="text-[10px] font-semibold text-rose-700 dark:text-rose-400 block">En retard</span>
                   <span className="text-xl font-display font-black text-rose-900 dark:text-rose-300 mt-1 block">
-                    {absentCount}
+                    {peopleBehind}
                   </span>
                 </div>
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-lg p-2.5 text-center">
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">Total Gemba</span>
+                  <span className="text-xl font-display font-black text-slate-800 dark:text-slate-200 mt-1 block">
+                    {totalGembaThisMonth}
+                  </span>
+                </div>
+              </div>
 
+              {/* Configurable monthly objective */}
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                <Target className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">Objectif mensuel :</span>
+                <input
+                  type="text"
+                  value={targetInput}
+                  onChange={(e) => setTargetInput(e.target.value)}
+                  className="w-12 text-center py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded font-mono text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                />
+                <span className="text-[10px] text-slate-400">Gemba / personne / mois</span>
+                {targetIsModified && (
+                  <button
+                    onClick={handleSaveTarget}
+                    disabled={savingTarget}
+                    className="ml-auto flex items-center gap-1 px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-bold transition-all disabled:opacity-50"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Modifier
+                  </button>
+                )}
               </div>
             </div>
 
           </div>
 
-          {/* Historical trend charts */}
+          {/* Historical trend chart */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-2xs lg:col-span-2 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Tendance Historique - Assiduité Tier 4 ({MONTH_WEEK_RANGES[selectedMonthIndex].name} {CURRENT_YEAR})
+                  Tendance Cumulée - Gemba HSE ({MONTH_WEEK_RANGES[selectedMonthIndex].name} {CURRENT_YEAR})
                 </span>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  Évolution du taux d'assiduité calculé à partir de la matrice d'ateliers pour le mois sélectionné.
+                  Le taux ne peut que progresser (ou stagner) au fil des semaines du mois — jamais redescendre.
                 </p>
               </div>
-              <TrendingUp className="w-4 h-4 text-emerald-500" />
+              <TrendingUp className="w-4 h-4 text-rose-500" />
             </div>
 
             <div className="h-28 w-full mt-2 font-mono text-[10px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="presenceGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.01}/>
+                    <linearGradient id="gembaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#e11d48" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#e11d48" stopOpacity={0.01} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" stroke="#94a3b8" tickLine={false} />
-                  <YAxis domain={[60, 100]} stroke="#94a3b8" tickLine={false} />
-                  <Tooltip 
+                  <YAxis domain={[0, 100]} stroke="#94a3b8" tickLine={false} />
+                  <Tooltip
                     contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff', borderRadius: '8px' }}
                     labelStyle={{ fontWeight: 'bold' }}
                   />
                   <Area
                     type="monotone"
-                    dataKey="Taux de Présence"
-                    stroke="#10b981"
+                    dataKey="Cumul Gemba (%)"
+                    stroke="#e11d48"
                     strokeWidth={2}
                     fillOpacity={1}
-                    fill="url(#presenceGrad)"
+                    fill="url(#gembaGrad)"
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -523,7 +546,7 @@ export default function AttendanceTracker({
           <div className="flex items-center gap-1.5">
             <Info className="w-4 h-4 text-blue-500" />
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Règles métier : Tout délégué envoyé pour représenter une fonction garantit l'assiduité (100%).
+              Règle métier : le cumul se construit semaine après semaine dans le mois — une semaine à 0 Gemba ne fait pas régresser le taux déjà acquis.
             </p>
           </div>
 
@@ -533,12 +556,12 @@ export default function AttendanceTracker({
               const availableToAdd = users.filter(u => !localRecords.some(r => r.userId === u.id));
               if (availableToAdd.length === 0) return null;
               return (
-                <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-lg px-2 py-1">
-                  <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-lg px-2 py-1">
+                  <UserPlus className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
                   <select
                     value=""
                     onChange={(e) => { if (e.target.value) handleAddParticipant(e.target.value); }}
-                    className="bg-transparent border-none text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-none cursor-pointer max-w-40"
+                    className="bg-transparent border-none text-xs font-bold text-rose-800 dark:text-rose-300 focus:outline-none cursor-pointer max-w-40"
                     title="Ajouter un participant pour cette semaine"
                   >
                     <option value="" disabled>Ajouter un participant…</option>
@@ -553,17 +576,17 @@ export default function AttendanceTracker({
             })()}
 
             <button
-              onClick={handleMarkAllPresent}
+              onClick={handleResetToZero}
               className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold transition-all"
             >
-              <Check className="w-3.5 h-3.5" />
-              <span>Tous Présents</span>
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Tout à 0</span>
             </button>
 
             <button
               onClick={handleCopyPreviousWeek}
               className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold transition-all"
-              title="Copier les présences du modèle précédent"
+              title="Copier les compteurs de la semaine précédente"
             >
               <Copy className="w-3.5 h-3.5" />
               <span>Copier Précédente</span>
@@ -579,16 +602,17 @@ export default function AttendanceTracker({
           </div>
         </div>
 
-        {/* Attendance Matrix Grid Table */}
+        {/* Gemba Matrix Grid Table */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
-          <table className="w-full text-left border-collapse" id="attendance-matrix-table">
-            
+          <table className="w-full text-left border-collapse" id="gemba-matrix-table">
+
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 <th className="py-3 px-6">Participant</th>
                 <th className="py-3 px-4">Fonction / Rôle</th>
                 <th className="py-3 px-4">Département</th>
-                <th className="py-3 px-6 text-center w-80">Statut Hebdomadaire</th>
+                <th className="py-3 px-4 text-center w-36">Gemba - {selectedWeek}</th>
+                <th className="py-3 px-4 text-center w-44">Cumul du Mois</th>
                 <th className="py-3 px-4 text-center w-16">Actions</th>
               </tr>
             </thead>
@@ -597,24 +621,12 @@ export default function AttendanceTracker({
               {localRecords.map(rec => {
                 const user = users.find(u => u.id === rec.userId);
                 const initial = rec.userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-
-                // Role long-names mapping
-                const roleLabels: Record<string, string> = {
-                  'DGA': 'Directeur Général Adjoint',
-                  'QHSE': 'Directeur QHSE',
-                  'DRH': 'Directeur Ressources Humaines',
-                  'Prod': 'Responsable Production',
-                  'Export': 'Directeur Export',
-                  'CG': 'Dir. Compta & Contrôle de Gestion',
-                  'Tech': 'Directeur Technique',
-                  'DAF': 'Directeur Administratif & Financier',
-                  'Admin': 'Administrateur S.I.'
-                };
+                const cumulative = cumulativePerPerson.get(rec.userId) || 0;
+                const personRate = monthlyTarget > 0 ? Math.round((Math.min(cumulative, monthlyTarget) / monthlyTarget) * 100) : 100;
 
                 return (
                   <tr key={rec.userId} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all">
-                    
-                    {/* Participant Avatar & Name */}
+
                     <td className="py-3 px-6 flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs shrink-0">
                         {initial}
@@ -629,72 +641,41 @@ export default function AttendanceTracker({
                       </div>
                     </td>
 
-                    {/* Function / Role */}
                     <td className="py-3 px-4 font-medium text-slate-750 dark:text-slate-350">
                       <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded font-bold text-[10px]">
                         {rec.userRole}
                       </span>
-                      <span className="ml-2 text-slate-500 text-xs">
-                        {roleLabels[rec.userRole] || rec.userRole}
-                      </span>
                     </td>
 
-                    {/* Department */}
                     <td className="py-3 px-4 text-slate-450 dark:text-slate-500 font-medium">
                       {rec.userDepartment}
                     </td>
 
-                    {/* Weekly Status (Present, Absent, Delegated) */}
-                    <td className="py-2.5 px-6">
-                      <div className="flex items-center justify-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 max-w-xs mx-auto">
-                        
-                        {/* Present option */}
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(rec.userId, 'Présent')}
-                          className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-1 ${
-                            rec.status === 'Présent'
-                              ? 'bg-emerald-500 text-white shadow-xs'
-                              : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-                          }`}
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Présent</span>
-                        </button>
+                    {/* This week's count */}
+                    <td className="py-2.5 px-4 text-center">
+                      <input
+                        type="text"
+                        value={rec.count}
+                        onChange={(e) => handleCountChange(rec.userId, e.target.value)}
+                        className="w-16 text-center py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                      />
+                    </td>
 
-                        {/* Delegated option */}
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(rec.userId, 'Délégué')}
-                          className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-1 ${
-                            rec.status === 'Délégué'
-                              ? 'bg-sky-500 text-white shadow-xs'
-                              : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-                          }`}
-                          title="Présent via un remplaçant"
-                        >
-                          <Award className="w-3.5 h-3.5" />
-                          <span>Délégué</span>
-                        </button>
-
-                        {/* Absent option */}
-                        <button
-                          type="button"
-                          onClick={() => handleStatusChange(rec.userId, 'Absent')}
-                          className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-1 ${
-                            rec.status === 'Absent'
-                              ? 'bg-rose-500 text-white shadow-xs'
-                              : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-                          }`}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          <span>Absent</span>
-                        </button>
-
+                    {/* Cumulative vs objective this month */}
+                    <td className="py-2.5 px-4">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="font-mono font-bold text-[11px] text-slate-600 dark:text-slate-300">
+                          {cumulative} / {monthlyTarget} ({personRate}%)
+                        </span>
+                        <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${personRate >= 100 ? 'bg-emerald-500' : personRate >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                            style={{ width: `${Math.min(personRate, 100)}%` }}
+                          />
+                        </div>
                       </div>
                     </td>
 
-                    {/* Remove from this week's roster */}
                     <td className="py-3 px-4 text-center">
                       <button
                         type="button"
@@ -720,7 +701,7 @@ export default function AttendanceTracker({
       <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-6 py-3.5 shrink-0 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
         <div className="flex items-center gap-1.5 font-medium">
           <Info className="w-3.5 h-3.5 text-blue-500" />
-          <span>L'assiduité hebdomadaire alimente directement le KPI "présence Hebdomadaire au Tier4 par fonction".</span>
+          <span>Le taux cumulé mensuel alimente directement le KPI "Suivi de Gemba HSE".</span>
         </div>
         <div className="font-mono text-[10px]">
           Fait à Sousse, Tunisie - Officeplast Quality System

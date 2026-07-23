@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { KPI, Action, Meeting, SQLServerConfig, AuditLog, User, WeeklyAttendance } from '../types';
+import { KPI, Action, Meeting, SQLServerConfig, AuditLog, User, WeeklyAttendance, WeeklyGemba } from '../types';
 
 export const INITIAL_USERS: User[] = [
   { id: 'usr-1', name: 'Anis Zouaoui', email: 'anis.zouaoui2003@gmail.com', role: 'DGA (Administrateur)', department: 'Direction' },
@@ -1182,4 +1182,12 @@ export const INITIAL_ATTENDANCE: WeeklyAttendance[] = [
     ]
   }
 ];
+
+// Monthly Gemba HSE objective per person (e.g. 2 = each person should complete 2 Gemba
+// walks per month). Configurable from the Suivi Gemba HSE tab.
+export const INITIAL_GEMBA_TARGET = 2;
+
+// No historical Gemba walks pre-seeded — real tracking starts from whenever the feature
+// is first used, unlike the other modules which carry a few weeks of demo history.
+export const INITIAL_GEMBA: WeeklyGemba[] = [];
 

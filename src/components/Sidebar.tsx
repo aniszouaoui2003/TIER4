@@ -18,7 +18,8 @@ import {
   LogOut,
   Moon,
   Sun,
-  Grid
+  Grid,
+  Footprints
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 
@@ -46,6 +47,7 @@ export default function Sidebar({
     { id: 'modules', label: 'Indicateurs Métiers', icon: TrendingUp },
     { id: 'kpi-entry', label: 'Saisie TeamGuru', icon: Grid },
     { id: 'presence-tracker', label: 'Suivi Présence', icon: Users },
+    { id: 'gemba-tracker', label: 'Suivi Gemba HSE', icon: Footprints },
     { id: 'actions', label: 'Plan d\'Actions', icon: ClipboardList },
     { id: 'meetings', label: 'Réunion Tier 4', icon: CalendarDays },
     { id: 'db-sync', label: 'Connecteur SQL', icon: Database },

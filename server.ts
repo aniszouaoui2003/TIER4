@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { loadRaw, persistRaw } from './src/data/store.js';
+import { MONTH_WEEK_RANGES, CURRENT_WEEK, getMonthIndexForWeek } from './src/utils/weekCalendar.js';
 
 // Load environment variables
 dotenv.config();
@@ -40,7 +41,9 @@ import {
   INITIAL_SQL_CONFIG,
   INITIAL_AUDIT_LOGS,
   INITIAL_USERS,
-  INITIAL_ATTENDANCE
+  INITIAL_ATTENDANCE,
+  INITIAL_GEMBA,
+  INITIAL_GEMBA_TARGET
 } from './src/data/mockData.js';
 
 // Helper to initialize and retrieve database
@@ -52,6 +55,8 @@ interface DataStoreSchema {
   logs: typeof INITIAL_AUDIT_LOGS;
   users: typeof INITIAL_USERS;
   attendance: typeof INITIAL_ATTENDANCE;
+  gemba: typeof INITIAL_GEMBA;
+  gembaMonthlyTarget: number;
 }
 
 function evaluateKPIStatus(value: number, target: number, name: string, category: string): 'Green' | 'Orange' | 'Red' {
@@ -255,6 +260,16 @@ async function readDB(): Promise<DataStoreSchema> {
         modified = true;
       }
 
+      if (!data.gemba) {
+        data.gemba = INITIAL_GEMBA;
+        modified = true;
+      }
+
+      if (data.gembaMonthlyTarget === undefined || data.gembaMonthlyTarget === null) {
+        data.gembaMonthlyTarget = INITIAL_GEMBA_TARGET;
+        modified = true;
+      }
+
       if (modified) {
         await writeDB(data);
       }
@@ -263,7 +278,7 @@ async function readDB(): Promise<DataStoreSchema> {
   } catch (err) {
     console.error('Error reading database, using fallback mock data:', err);
   }
-  
+
   // Return default mock structures
   const defaultData: DataStoreSchema = {
     kpis: INITIAL_KPIS,
@@ -272,7 +287,9 @@ async function readDB(): Promise<DataStoreSchema> {
     sqlConfig: INITIAL_SQL_CONFIG,
     logs: INITIAL_AUDIT_LOGS,
     users: INITIAL_USERS,
-    attendance: INITIAL_ATTENDANCE
+    attendance: INITIAL_ATTENDANCE,
+    gemba: INITIAL_GEMBA,
+    gembaMonthlyTarget: INITIAL_GEMBA_TARGET
   };
   await writeDB(defaultData);
   return defaultData;
@@ -646,9 +663,9 @@ app.post('/api/attendance', async (req, res) => {
   const kpiIdx = db.kpis.findIndex(k => k.id === 'kpi-rh-presence');
   if (kpiIdx !== -1) {
     const kpi = db.kpis[kpiIdx];
-    
-    // Update current weekly value if it's the latest week ('Semaine 26')
-    if (week === 'Semaine 26') {
+
+    // Update the live snapshot only if this is the current real week
+    if (week === `Semaine ${CURRENT_WEEK}`) {
       kpi.weeklyValue = rate;
       kpi.status = rate >= 100 ? 'Green' : (rate >= 90 ? 'Orange' : 'Red');
     }
@@ -678,6 +695,116 @@ app.post('/api/attendance', async (req, res) => {
     week,
     calculatedRate: rate,
     attendance: db.attendance
+  });
+});
+
+// 5c. Gemba HSE weekly tracking — cumulative % vs. a configurable monthly objective per person
+app.get('/api/gemba', async (req, res) => {
+  const db = await readDB();
+  res.json({ records: db.gemba || [], monthlyTarget: db.gembaMonthlyTarget ?? 2 });
+});
+
+app.put('/api/gemba-target', async (req, res) => {
+  const db = await readDB();
+  const { target } = req.body;
+
+  if (typeof target !== 'number' || !(target > 0)) {
+    return res.status(400).json({ error: 'Objectif mensuel invalide.' });
+  }
+
+  db.gembaMonthlyTarget = target;
+  await writeDB(db);
+  await addAuditLog(
+    'Administrateur',
+    'Admin',
+    'Configuration',
+    'Sécurité',
+    `Objectif mensuel Gemba HSE modifié à ${target} par personne.`
+  );
+
+  res.json({ success: true, monthlyTarget: target });
+});
+
+app.post('/api/gemba', async (req, res) => {
+  const db = await readDB();
+  const { week, records } = req.body;
+
+  if (!week || !records) {
+    return res.status(400).json({ error: 'Week and records are required.' });
+  }
+
+  if (!db.gemba) {
+    db.gemba = [];
+  }
+
+  const existingIdx = db.gemba.findIndex(g => g.week === week);
+  if (existingIdx !== -1) {
+    db.gemba[existingIdx].records = records;
+  } else {
+    db.gemba.push({ week, records });
+  }
+
+  const target = db.gembaMonthlyTarget ?? 2;
+  const weekNum = parseInt(String(week).replace(/\D/g, ''), 10) || 0;
+  const monthIdx = getMonthIndexForWeek(weekNum);
+  const monthRange = monthIdx !== -1 ? MONTH_WEEK_RANGES[monthIdx] : null;
+  const kpi = db.kpis.find(k => k.id === 'kpi-sec-gemba');
+
+  let currentWeekRate: number | null = null;
+
+  if (monthRange) {
+    // Recompute the cumulative-vs-target rate for every recorded week of this month, in
+    // order — editing an earlier week must cascade forward into every later week's total,
+    // since the objective is monthly and the count only ever accumulates within the month.
+    const cumulativePerPerson = new Map<string, number>();
+
+    for (const w of monthRange.weeks) {
+      const label = `Semaine ${w}`;
+      const weekData = db.gemba.find(g => g.week === label);
+      if (!weekData) continue;
+
+      weekData.records.forEach((r: any) => {
+        cumulativePerPerson.set(r.userId, (cumulativePerPerson.get(r.userId) || 0) + (Number(r.count) || 0));
+      });
+
+      const totalPeople = weekData.records.length;
+      const achieved = weekData.records.reduce((sum: number, r: any) => {
+        const cum = cumulativePerPerson.get(r.userId) || 0;
+        return sum + Math.min(cum, target);
+      }, 0);
+      const rate = totalPeople > 0 ? Math.round((achieved / (target * totalPeople)) * 100) : 100;
+
+      if (kpi) {
+        const histIdx = kpi.history.findIndex(h => h.date === label);
+        if (histIdx !== -1) kpi.history[histIdx].value = rate;
+        else kpi.history.push({ date: label, value: rate });
+      }
+
+      if (w === CURRENT_WEEK) {
+        currentWeekRate = rate;
+      }
+    }
+  }
+
+  if (kpi && currentWeekRate !== null) {
+    kpi.weeklyValue = currentWeekRate;
+    kpi.dailyValue = currentWeekRate;
+    kpi.status = currentWeekRate >= 95 ? 'Green' : (currentWeekRate >= 70 ? 'Orange' : 'Red');
+  }
+
+  await writeDB(db);
+  await addAuditLog(
+    'Système (Auto)',
+    'Admin',
+    'Calcul Gemba',
+    'Sécurité',
+    `Taux de Gemba HSE cumulé recalculé pour la ${week} et injecté dans le KPI [Suivi de Gemba HSE].`
+  );
+
+  res.json({
+    success: true,
+    week,
+    gemba: db.gemba
   });
 });
 

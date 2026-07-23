@@ -12,6 +12,7 @@ import MeetingManager from './components/MeetingManager';
 import AdminSettings from './components/AdminSettings';
 import KPITeamGuruEntry from './components/KPITeamGuruEntry';
 import AttendanceTracker from './components/AttendanceTracker';
+import GembaTracker from './components/GembaTracker';
 import { User, KPI, Action, Meeting, SQLServerConfig, AuditLog } from './types';
 
 export default function App() {
@@ -443,6 +444,14 @@ export default function App() {
 
           {activeTab === 'presence-tracker' && (
             <AttendanceTracker
+              users={users}
+              currentUser={currentUser!}
+              onRefreshData={fetchInitialData}
+            />
+          )}
+
+          {activeTab === 'gemba-tracker' && (
+            <GembaTracker
               users={users}
               currentUser={currentUser!}
               onRefreshData={fetchInitialData}

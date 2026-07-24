@@ -13,7 +13,8 @@ import {
   CheckSquare,
   Droplet,
   Calendar,
-  ShieldAlert
+  ShieldAlert,
+  CalendarRange
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -26,7 +27,8 @@ import {
   Legend
 } from 'recharts';
 import { KPI, Action, User } from '../types';
-import { getWeekNum } from '../utils/weekCalendar';
+import { CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
+import { getWeeklyRowValue, getMonthlyRowValue, evaluateStatus, ALL_WEEKS } from '../utils/kpiExcelData';
 
 interface ModuleDetailProps {
   kpis: KPI[];
@@ -60,20 +62,69 @@ export default function ModuleDetail({
   const currentModuleKpis = kpis.filter(k => k.category === selectedModuleId);
   const currentModuleActions = actions.filter(a => a.department === selectedModuleId);
 
-  // One combined weekly trend series per KPI in the selected module, built entirely from real
-  // saisie data (never fabricated) — merges each KPI's own `history` into a single date-indexed
-  // dataset so Recharts can plot them as one multi-line chart, sorted by week number.
-  const trendChartData = React.useMemo(() => {
-    const byDate = new Map<string, Record<string, string | number>>();
+  // Period selector: a single week, a month (aggregated like the Saisie KPIs monthly rollup),
+  // or a custom week-to-week range. Drives both the KPI cards' displayed value and the trend
+  // chart's x-axis/range, using the exact same value logic as Saisie KPIs (getWeeklyRowValue /
+  // getMonthlyRowValue — the site-tracked KPIs' Total is always the live sum of Site 1 + Site 2)
+  // so a card here can never disagree with the grid it's sourced from.
+  const [periodMode, setPeriodMode] = React.useState<'week' | 'month' | 'range'>('week');
+  const [selectedWeek, setSelectedWeek] = React.useState<number>(CURRENT_WEEK);
+  const [selectedMonthIndex, setSelectedMonthIndex] = React.useState<number>(Math.max(0, getMonthIndexForWeek(CURRENT_WEEK)));
+  const [rangeStart, setRangeStart] = React.useState<number>(Math.max(1, CURRENT_WEEK - 4));
+  const [rangeEnd, setRangeEnd] = React.useState<number>(CURRENT_WEEK);
+
+  // The weeks that actually have at least one real value in this module, so the chart never
+  // spans all 52 weeks of empty cells just because week 52 exists.
+  const weeksWithData = React.useMemo(() => {
+    const set = new Set<number>();
     currentModuleKpis.forEach(k => {
-      (k.history || []).forEach(h => {
-        const point = byDate.get(h.date) || { date: h.date };
-        point[k.name] = h.value;
-        byDate.set(h.date, point);
+      ALL_WEEKS.forEach(w => {
+        if (getWeeklyRowValue(k, 'total', w) !== null) set.add(w);
       });
     });
-    return Array.from(byDate.values()).sort((a, b) => getWeekNum(String(a.date)) - getWeekNum(String(b.date)));
+    return Array.from(set).sort((a, b) => a - b);
   }, [currentModuleKpis]);
+
+  // Card value for the selected period: the week's value, the month's aggregate, or the
+  // average across the chosen week range.
+  const getCardValue = (k: KPI): number | null => {
+    if (periodMode === 'week') return getWeeklyRowValue(k, 'total', selectedWeek);
+    if (periodMode === 'month') return getMonthlyRowValue(k, 'total', selectedMonthIndex);
+    const vals: number[] = [];
+    for (let w = Math.min(rangeStart, rangeEnd); w <= Math.max(rangeStart, rangeEnd); w++) {
+      const v = getWeeklyRowValue(k, 'total', w);
+      if (v !== null) vals.push(v);
+    }
+    return vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
+  };
+
+  // Trend chart series: monthly aggregates (12 points) in "Mois" mode, weekly values in "Semaine"
+  // mode (all weeks with data) or "Semaine à Semaine" mode (only the chosen range).
+  const trendChartData = React.useMemo(() => {
+    if (periodMode === 'month') {
+      return MONTH_WEEK_RANGES.map((m, idx) => {
+        const point: Record<string, string | number> = { date: m.name };
+        currentModuleKpis.forEach(k => {
+          const v = getMonthlyRowValue(k, 'total', idx);
+          if (v !== null) point[k.name] = v;
+        });
+        return point;
+      });
+    }
+
+    const lo = periodMode === 'range' ? Math.min(rangeStart, rangeEnd) : 1;
+    const hi = periodMode === 'range' ? Math.max(rangeStart, rangeEnd) : 52;
+    return weeksWithData
+      .filter(w => w >= lo && w <= hi)
+      .map(w => {
+        const point: Record<string, string | number> = { date: `Semaine ${w}` };
+        currentModuleKpis.forEach(k => {
+          const v = getWeeklyRowValue(k, 'total', w);
+          if (v !== null) point[k.name] = v;
+        });
+        return point;
+      });
+  }, [currentModuleKpis, periodMode, rangeStart, rangeEnd, weeksWithData]);
 
   const TREND_COLORS = ['#3b82f6', '#f43f5e', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899'];
 
@@ -114,7 +165,7 @@ export default function ModuleDetail({
       </div>
 
       {/* 2. HEADER DETAILS OF CHOSEN MODULE */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-widest font-mono">
             Focus Thématique Métier
@@ -123,8 +174,75 @@ export default function ModuleDetail({
             Analyse Détaillée - {selectedModuleId}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Indicateurs industriels, tendance hebdomadaire et plans d'actions associés
+            Indicateurs industriels, tendance sur la période choisie et plans d'actions associés
           </p>
+        </div>
+
+        {/* Period selector: single week, month, or a custom week-to-week range */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60">
+            <CalendarRange className="w-3.5 h-3.5 text-slate-400 ml-1.5 shrink-0" />
+            {(['week', 'month', 'range'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setPeriodMode(mode)}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                  periodMode === mode ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                {mode === 'week' ? 'Semaine' : mode === 'month' ? 'Mois' : 'Semaine à Semaine'}
+              </button>
+            ))}
+          </div>
+
+          {periodMode === 'week' && (
+            <select
+              value={selectedWeek}
+              onChange={(e) => setSelectedWeek(Number(e.target.value))}
+              className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+            >
+              {ALL_WEEKS.map(w => (
+                <option key={w} value={w}>Semaine {w}{w === CURRENT_WEEK ? ' (actuelle)' : ''}</option>
+              ))}
+            </select>
+          )}
+
+          {periodMode === 'month' && (
+            <select
+              value={selectedMonthIndex}
+              onChange={(e) => setSelectedMonthIndex(Number(e.target.value))}
+              className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+            >
+              {MONTH_WEEK_RANGES.map((m, idx) => (
+                <option key={m.name} value={idx}>{m.name}</option>
+              ))}
+            </select>
+          )}
+
+          {periodMode === 'range' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">De</span>
+              <select
+                value={rangeStart}
+                onChange={(e) => setRangeStart(Number(e.target.value))}
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                {ALL_WEEKS.map(w => (
+                  <option key={w} value={w}>S{w}</option>
+                ))}
+              </select>
+              <span className="text-slate-400">à</span>
+              <select
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(Number(e.target.value))}
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                {ALL_WEEKS.map(w => (
+                  <option key={w} value={w}>S{w}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -135,32 +253,36 @@ export default function ModuleDetail({
             Aucun indicateur de performance (KPI) répertorié pour le module [{selectedModuleId}].
           </div>
         ) : (
-          currentModuleKpis.map(k => (
-            <div key={k.id} className="bento-card p-5 flex flex-col justify-between h-[150px] hover:scale-[1.01] transition-transform duration-300">
-              <div className="space-y-1">
-                <div className="flex justify-between items-start">
-                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Pilote : {k.owner}</span>
-                  <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold font-mono ${getStatusColorClass(k.status)}`}>
-                    {k.status}
-                  </span>
+          currentModuleKpis.map(k => {
+            const periodValue = getCardValue(k);
+            const periodStatus = periodValue !== null ? evaluateStatus(periodValue, k.target, k.name, k.category) : k.status;
+            return (
+              <div key={k.id} className="bento-card p-5 flex flex-col justify-between h-[150px] hover:scale-[1.01] transition-transform duration-300">
+                <div className="space-y-1">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">Pilote : {k.owner}</span>
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold font-mono ${getStatusColorClass(periodStatus)}`}>
+                      {periodStatus}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-display font-bold text-slate-800 dark:text-slate-100 truncate tracking-tight" title={k.name}>{k.name}</h4>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 line-clamp-2 leading-relaxed" title={k.description}>
+                    {k.description}
+                  </p>
                 </div>
-                <h4 className="text-sm font-display font-bold text-slate-800 dark:text-slate-100 truncate tracking-tight" title={k.name}>{k.name}</h4>
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 line-clamp-2 leading-relaxed" title={k.description}>
-                  {k.description}
-                </p>
-              </div>
 
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex justify-between items-baseline">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-3xl font-display font-bold text-slate-900 dark:text-white tracking-tight">{k.weeklyValue}</span>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold font-mono">{k.unit}</span>
-                </div>
-                <div className="text-[11px] text-slate-500 font-medium font-mono">
-                  Cible : <strong className="text-slate-700 dark:text-slate-200">{k.target} {k.unit}</strong>
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex justify-between items-baseline">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-display font-bold text-slate-900 dark:text-white tracking-tight">{periodValue ?? '—'}</span>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold font-mono">{k.unit}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-medium font-mono">
+                    Cible : <strong className="text-slate-700 dark:text-slate-200">{k.target} {k.unit}</strong>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -172,12 +294,12 @@ export default function ModuleDetail({
             what was saisi, named after the actual KPI it comes from. */}
         <div className="bento-card p-5 lg:col-span-7 flex flex-col h-[350px]">
           <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 font-mono">
-            Tendance Hebdomadaire — {selectedModuleId}
+            Tendance {periodMode === 'month' ? 'Mensuelle' : 'Hebdomadaire'} — {selectedModuleId}
           </h3>
           <div className="flex-1 min-h-0 text-xs">
             {trendChartData.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 italic text-center px-6">
-                Aucune donnée hebdomadaire saisie pour les indicateurs du module [{selectedModuleId}].
+                Aucune donnée saisie pour les indicateurs du module [{selectedModuleId}]{periodMode === 'range' ? ` entre les semaines ${Math.min(rangeStart, rangeEnd)} et ${Math.max(rangeStart, rangeEnd)}` : ''}.
                 <br />Renseignez-les dans l'onglet Saisie KPIs pour voir apparaître la tendance ici.
               </div>
             ) : (

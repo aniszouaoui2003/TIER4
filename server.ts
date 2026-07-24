@@ -1382,15 +1382,43 @@ function getFallbackMeetingSummary(weekNumber: number) {
   };
 }
 
+// Recomputes a KPI's weekly value + status scoped to one site, mirroring the exact same
+// override logic the Dashboard uses client-side (displayedKpis) — so the AI's picture of
+// "what's red/orange" always matches what the director is actually looking at on screen.
+function scopeKpiToSite(k: KpiRecord, site: 'Total' | 'Site 1' | 'Site 2'): { weeklyValue: number; status: string; applicable: boolean } {
+  if (site === 'Total') return { weeklyValue: k.weeklyValue, status: k.status, applicable: true };
+
+  const applicable = site === 'Site 1' ? k.site1Checked : k.site2Checked;
+  if (!applicable) return { weeklyValue: 0, status: 'Green', applicable: false };
+
+  const weeklyValue = site === 'Site 1' ? (k.site1Value ?? k.weeklyValue) : (k.site2Value ?? k.weeklyValue);
+  let status: string;
+  if (k.greenThreshold.includes('== 0')) {
+    status = weeklyValue === 0 ? 'Green' : (weeklyValue > 2 ? 'Red' : 'Orange');
+  } else if (k.greenThreshold.includes('<=')) {
+    status = weeklyValue <= k.target ? 'Green' : (weeklyValue <= k.target * 1.1 ? 'Orange' : 'Red');
+  } else {
+    status = weeklyValue >= k.target ? 'Green' : (weeklyValue >= k.target * 0.9 ? 'Orange' : 'Red');
+  }
+  return { weeklyValue, status, applicable: true };
+}
+
 // Gemini API Route 1: Analyze current plant performance to suggest bottleneck solutions
 app.post('/api/ai/analyze-performance', async (req, res) => {
   const db = await readDB();
-  const redKpis = db.kpis.filter(k => k.status === 'Red');
-  const orangeKpis = db.kpis.filter(k => k.status === 'Orange');
-  const activeActions = db.actions.filter(a => a.status !== 'Clôturé');
+  const site: 'Total' | 'Site 1' | 'Site 2' = ['Site 1', 'Site 2'].includes(req.body.site) ? req.body.site : 'Total';
+
+  const scopedKpis = db.kpis
+    .map(k => ({ k, scoped: scopeKpiToSite(k, site) }))
+    .filter(({ scoped }) => scoped.applicable);
+  const redKpis = scopedKpis.filter(({ scoped }) => scoped.status === 'Red').map(({ k, scoped }) => ({ ...k, weeklyValue: scoped.weeklyValue }));
+  const orangeKpis = scopedKpis.filter(({ scoped }) => scoped.status === 'Orange').map(({ k, scoped }) => ({ ...k, weeklyValue: scoped.weeklyValue }));
+  const activeActions = db.actions.filter(a => a.status !== 'Clôturé' && (site === 'Total' || a.workshop === site || a.workshop === 'Total Usine'));
+
+  const sitePromptLabel = site === 'Total' ? 'l\'ensemble du site (Total Officeplast)' : site;
 
   const performancePrompt = `
-En tant qu'expert d'élite en Lean Manufacturing, Direction Industrielle et Management SQCDP, analyse les indicateurs de performance d'usine suivants :
+En tant qu'expert d'élite en Lean Manufacturing, Direction Industrielle et Management SQCDP, analyse les indicateurs de performance d'usine suivants, en te concentrant exclusivement sur ${sitePromptLabel} :
 Indicateurs Critiques (Rouge/Red) :
 ${redKpis.map(k => `- ${k.category} > ${k.name} : Actuel=${k.weeklyValue}${k.unit} (Cible=${k.target}${k.unit})`).join('\n')}
 

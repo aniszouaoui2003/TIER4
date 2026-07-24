@@ -14,7 +14,6 @@ import {
   Minus,
   Sparkles,
   RefreshCw,
-  TrendingUp,
   AlertOctagon,
   Clock,
   ExternalLink,
@@ -32,6 +31,8 @@ import {
 } from 'recharts';
 import { motion } from 'motion/react';
 import { KPI, Action, User } from '../types';
+import { CURRENT_WEEK } from '../utils/weekCalendar';
+import { getWeeklyRowValue, evaluateStatus } from '../utils/kpiExcelData';
 
 interface DashboardMainProps {
   kpis: KPI[];
@@ -65,10 +66,13 @@ export default function DashboardMain({
   const [aiError, setAiError] = useState<string | null>(null);
   const [selectedSite, setSelectedSite] = useState<'Total' | 'Site 1' | 'Site 2'>('Total');
 
-  // Load AI Analysis on mount
+  // Load AI Analysis on mount, and again whenever the site filter changes — otherwise the
+  // consultant panel keeps commenting on the whole plant while the rest of the page is scoped
+  // to a single site.
   useEffect(() => {
     fetchAIAnalysis();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSite]);
 
   const fetchAIAnalysis = async () => {
     setLoadingAI(true);
@@ -79,7 +83,8 @@ export default function DashboardMain({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user: currentUser.name,
-          role: currentUser.role
+          role: currentUser.role,
+          site: selectedSite
         })
       });
       if (!response.ok) throw new Error('Échec de la récupération de l\'analyse');
@@ -139,6 +144,25 @@ export default function DashboardMain({
   const greenKpisCount = displayedKpis.filter(k => k.status === 'Green' && !k.isNotApplicable).length;
   const plantScore = activeKpiCount > 0 ? Math.round((greenKpisCount / activeKpiCount) * 100) : 100;
 
+  // Same methodology applied to last week's recorded values, for a real week-over-week trend
+  // on the headline score (a KPI with nothing recorded that week is excluded from both the
+  // numerator and denominator, same as "not applicable" above — it can't be judged either way).
+  const lastWeekScore = (() => {
+    const rowType = selectedSite === 'Site 1' ? 'site1' : selectedSite === 'Site 2' ? 'site2' : 'total';
+    let active = 0;
+    let green = 0;
+    kpis.forEach(k => {
+      const applicable = selectedSite === 'Site 1' ? k.site1Checked : selectedSite === 'Site 2' ? k.site2Checked : true;
+      if (!applicable) return;
+      const val = getWeeklyRowValue(k, rowType, CURRENT_WEEK - 1);
+      if (val === null) return;
+      active++;
+      if (evaluateStatus(val, k.target, k.name, k.category) === 'Green') green++;
+    });
+    return active > 0 ? Math.round((green / active) * 100) : null;
+  })();
+  const scoreDelta = lastWeekScore !== null ? plantScore - lastWeekScore : null;
+
   // Group KPIs by category (selecting main KPI per category)
   const categories = [
     { id: 'Sécurité', label: 'Sécurité', desc: 'Accidents & Audits', color: 'bg-emerald-500' },
@@ -151,39 +175,29 @@ export default function DashboardMain({
     { id: 'Amélioration continue', label: 'Amélioration continue', desc: 'Audits 5S & Environnement', color: 'bg-indigo-500' }
   ];
 
-  // Radar SQCDP data modeling
-  const radarData = categories.slice(0, 5).map(cat => {
-    const kpi = displayedKpis.find(k => k.category === cat.id);
-    // Standardize score between 0 and 100
-    let score = 50;
-    if (kpi) {
-      if (kpi.status === 'Green') score = 90 + Math.random() * 8;
-      else if (kpi.status === 'Orange') score = 70 + Math.random() * 10;
-      else score = 40 + Math.random() * 15;
-    }
+  // Radar SQCDP data — a real average across every KPI in the category (not just the first one
+  // found), scored deterministically from each KPI's actual status. No randomness: reloading the
+  // page with the same data always gives the same radar.
+  const STATUS_SCORE: Record<string, number> = { Green: 100, Orange: 65, Red: 30 };
+  const radarData = categories.map(cat => {
+    const catKpis = displayedKpis.filter(k => k.category === cat.id && !k.isNotApplicable);
+    const score = catKpis.length > 0
+      ? Math.round(catKpis.reduce((sum, k) => sum + (STATUS_SCORE[k.status] ?? 50), 0) / catKpis.length)
+      : 0;
     return {
       subject: cat.label,
-      Actuel: Math.round(score),
+      Actuel: score,
       Cible: 95,
       fullMark: 100
     };
   });
 
-  // Site & Usine Heatmap modeling
+  // Site & Usine Heatmap modeling — every SQCDP category, not a partial subset
   const scopes = ['Site 1', 'Site 2', 'Total Usine'];
-  const columns = ['Sécurité', 'Qualité', 'Livraison', 'Production', 'Maintenance', 'Amélioration continue'];
+  const columns = categories.map(c => c.id);
 
   const getHeatmapColor = (scope: string, column: string) => {
-    const categoryMap: Record<string, string> = {
-      'Sécurité': 'Sécurité',
-      'Qualité': 'Qualité',
-      'Livraison': 'Livraison',
-      'Production': 'Production',
-      'Maintenance': 'Maintenance',
-      'Amélioration continue': 'Amélioration continue'
-    };
-
-    const catId = categoryMap[column] || column;
+    const catId = column;
     const catKpis = kpis.filter(k => k.category === catId);
 
     // Find all applicable KPIs for this scope and category
@@ -257,6 +271,24 @@ export default function DashboardMain({
     }
   };
 
+  const rawTodayLabel = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const todayLabel = rawTodayLabel.charAt(0).toUpperCase() + rawTodayLabel.slice(1);
+
+  // Real, data-driven alerts — the two dimensions the app actually tracks: KPIs currently in
+  // the red, and actions past their due date. No fabricated PPM figures, no fake integrations.
+  const redAlertKpis = displayedKpis.filter(k => k.status === 'Red' && !k.isNotApplicable).slice(0, 3);
+  const overdueActionsSorted = [...delayedActions].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+  const daysLate = (dueDate: string) => Math.max(1, Math.round((Date.now() - new Date(dueDate).getTime()) / 86400000));
+
+  // Which heatmap cells are currently at alert level, for an observation line that reflects
+  // what's actually on screen instead of a fixed sentence.
+  const heatmapAlerts: string[] = [];
+  scopes.forEach(scope => {
+    columns.forEach(col => {
+      if (getHeatmapColor(scope, col).includes('rose')) heatmapAlerts.push(`${scope} → ${col}`);
+    });
+  });
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
       
@@ -295,7 +327,7 @@ export default function DashboardMain({
 
           <span className="text-xs font-semibold px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg flex items-center gap-1.5 shadow-xs">
             <Clock className="w-3.5 h-3.5 text-blue-500" />
-            Lundi 29 Juin 2026 • S26
+            {todayLabel} • S{CURRENT_WEEK}
           </span>
         </div>
       </div>
@@ -311,8 +343,20 @@ export default function DashboardMain({
             <p className="text-3xl font-display font-bold text-slate-900 dark:text-white tracking-tight">
               {plantScore}%
             </p>
-            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 font-mono">
-              <TrendingUp className="w-3 h-3 text-emerald-500" />
+            <p className={`text-[10px] font-semibold flex items-center gap-1 font-mono ${
+              scoreDelta === null ? 'text-slate-400' : scoreDelta > 0 ? 'text-emerald-600 dark:text-emerald-400' : scoreDelta < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'
+            }`}>
+              {scoreDelta === null ? (
+                <><Minus className="w-3 h-3" /> Pas de référence S{CURRENT_WEEK - 1}</>
+              ) : scoreDelta > 0 ? (
+                <><ArrowUpRight className="w-3 h-3" /> +{scoreDelta} pts vs S{CURRENT_WEEK - 1}</>
+              ) : scoreDelta < 0 ? (
+                <><ArrowDownRight className="w-3 h-3" /> {scoreDelta} pts vs S{CURRENT_WEEK - 1}</>
+              ) : (
+                <><Minus className="w-3 h-3" /> Stable vs S{CURRENT_WEEK - 1}</>
+              )}
+            </p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
               {greenKpisCount}/{activeKpiCount} indicateurs au Vert
             </p>
           </div>
@@ -414,7 +458,7 @@ export default function DashboardMain({
           </div>
           
           <div className="flex-1 flex flex-col justify-between overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[500px]">
+            <table className="w-full text-left border-collapse min-w-[680px]">
               <thead>
                 <tr>
                   <th className="py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider w-40 font-mono">Site / Périmètre</th>
@@ -445,7 +489,10 @@ export default function DashboardMain({
           </div>
           
           <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl text-[11px] text-slate-500 dark:text-slate-400 mt-2 border border-blue-100/10">
-            <strong>Observation :</strong> Les indicateurs locaux du Site 1 et du Site 2 sont consolidés au niveau de la gouvernance <strong>Total Usine</strong>. Actuellement, la vigilance principale se porte sur les rebus et l'OEE du Site 1.
+            <strong>Observation :</strong>{' '}
+            {heatmapAlerts.length === 0
+              ? 'Aucune cellule en alerte actuellement — les indicateurs locaux du Site 1 et du Site 2 sont consolidés au niveau de la gouvernance Total Usine.'
+              : `Vigilance requise sur : ${heatmapAlerts.join(', ')}.`}
           </div>
         </div>
       </div>
@@ -730,38 +777,35 @@ export default function DashboardMain({
           </h3>
           
           <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
-            {/* Alert 1 */}
-            <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border-l-4 border-l-rose-500 rounded-r-xl space-y-1">
-              <div className="flex justify-between items-center text-rose-800 dark:text-rose-300 font-bold text-[11px] font-mono">
-                <span className="flex items-center gap-1">🚨 ALERTE KPI DÉGRADÉ (SEUILS ROUGES)</span>
-                <span className="font-mono text-[9px] bg-rose-200/50 dark:bg-rose-900/40 px-1 rounded">Urgent</span>
+            {redAlertKpis.length === 0 && overdueActionsSorted.length === 0 && (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center py-6">
+                Aucune alerte active — aucun KPI au rouge et aucune action en retard pour le périmètre sélectionné.
               </div>
-              <p className="text-slate-700 dark:text-slate-300 text-[11px]">
-                Le Taux de rebuts clients de la semaine 26 a atteint <strong>210 PPM</strong> (Objectif max 150 PPM). Escalade active vers le Directeur Qualité.
-              </p>
-            </div>
+            )}
 
-            {/* Alert 2 */}
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border-l-4 border-l-amber-500 rounded-r-xl space-y-1">
-              <div className="flex justify-between items-center text-amber-800 dark:text-amber-300 font-bold text-[11px] font-mono">
-                <span className="flex items-center gap-1">⚠️ ACTIONS EN RETARD À CLÔTURER</span>
-                <span className="font-mono text-[9px] bg-amber-200/50 dark:bg-amber-900/40 px-1 rounded">2 Jours</span>
+            {redAlertKpis.map(kpi => (
+              <div key={kpi.id} className="p-3 bg-rose-50 dark:bg-rose-950/20 border-l-4 border-l-rose-500 rounded-r-xl space-y-1">
+                <div className="flex justify-between items-center text-rose-800 dark:text-rose-300 font-bold text-[11px] font-mono">
+                  <span className="flex items-center gap-1">🚨 KPI AU ROUGE</span>
+                  <span className="font-mono text-[9px] bg-rose-200/50 dark:bg-rose-900/40 px-1 rounded uppercase">{kpi.category}</span>
+                </div>
+                <p className="text-slate-700 dark:text-slate-300 text-[11px]">
+                  <strong>{kpi.name}</strong> est à <strong>{kpi.weeklyValue} {kpi.unit}</strong> (Objectif {kpi.target} {kpi.unit}) — Pilote : {kpi.owner}.
+                </p>
               </div>
-              <p className="text-slate-700 dark:text-slate-300 text-[11px]">
-                L'action <strong>ACT-2026-001</strong> (Sécurisation robot Presse 4) est planifiée pour le 30 juin (demain) et est à 30% d'avancement. Relance automatique sur Teams & WhatsApp à <i>Lucas Petit</i>.
-              </p>
-            </div>
+            ))}
 
-            {/* Alert 3 - Teams WhatsApp integration demo */}
-            <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border-l-4 border-l-blue-500 rounded-r-xl space-y-1">
-              <div className="flex justify-between items-center text-blue-800 dark:text-blue-300 font-bold text-[11px] font-mono">
-                <span className="flex items-center gap-1">💬 SIMULATION INTEGRATIONS API</span>
-                <span className="font-mono text-[9px] bg-blue-200/50 dark:bg-blue-900/40 px-1 rounded">Connecté</span>
+            {overdueActionsSorted.slice(0, 3).map(action => (
+              <div key={action.id} className="p-3 bg-amber-50 dark:bg-amber-950/20 border-l-4 border-l-amber-500 rounded-r-xl space-y-1">
+                <div className="flex justify-between items-center text-amber-800 dark:text-amber-300 font-bold text-[11px] font-mono">
+                  <span className="flex items-center gap-1">⚠️ ACTION EN RETARD</span>
+                  <span className="font-mono text-[9px] bg-amber-200/50 dark:bg-amber-900/40 px-1 rounded">{daysLate(action.dueDate)} j.</span>
+                </div>
+                <p className="text-slate-700 dark:text-slate-300 text-[11px]">
+                  <strong>{action.autoNum}</strong> ({action.subject}) — échéance dépassée depuis {daysLate(action.dueDate)} jour(s), {action.completionPercentage}% d'avancement. Responsable : <i>{action.owner}</i>.
+                </p>
               </div>
-              <p className="text-slate-700 dark:text-slate-300 text-[11px]">
-                Les alertes automatiques sont configurées pour expédier un rapport PDF condensé aux groupes <strong>MS Teams "Comité de Direction"</strong> et via <strong>WhatsApp API</strong> aux responsables à chaque clôture de réunion Tier 4.
-              </p>
-            </div>
+            ))}
 
             {/* Escalation Rules Info */}
             <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/60 text-[11px] text-slate-500 font-mono">

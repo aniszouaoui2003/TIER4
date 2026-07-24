@@ -14,7 +14,6 @@ import {
   TrendingUp,
   Save,
   RotateCcw,
-  Sparkles,
   Copy,
   Info,
   UserPlus,
@@ -185,23 +184,6 @@ export default function AttendanceTracker({
       setErrorMsg(`Aucune donnée trouvée pour la semaine précédente (${prevWeekName}).`);
       setTimeout(() => setErrorMsg(null), 4000);
     }
-  };
-
-  // Quick Action: Simulate randomly near targets
-  const handleSimulateRandom = () => {
-    const statuses: AttendanceStatus[] = ['Présent', 'Absent', 'Délégué'];
-    const updated = localRecords.map(rec => {
-      // 80% chance Present, 10% Absent, 10% Delegate
-      const rand = Math.random();
-      let status: AttendanceStatus = 'Présent';
-      if (rand > 0.9) {
-        status = 'Absent';
-      } else if (rand > 0.8) {
-        status = 'Délégué';
-      }
-      return { ...rec, status };
-    });
-    setLocalRecords(updated);
   };
 
   // Save changes to backend
@@ -569,13 +551,6 @@ export default function AttendanceTracker({
               <span>Copier Précédente</span>
             </button>
 
-            <button
-              onClick={handleSimulateRandom}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40 rounded-lg text-xs font-bold transition-all"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Saisie Démo</span>
-            </button>
           </div>
         </div>
 

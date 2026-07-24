@@ -12,7 +12,6 @@ import {
   TrendingUp,
   Save,
   RotateCcw,
-  Sparkles,
   Copy,
   Info,
   UserPlus,
@@ -169,16 +168,6 @@ export default function GembaTracker({
       setErrorMsg(`Aucune donnée trouvée pour la semaine précédente (${prevWeekName}).`);
       setTimeout(() => setErrorMsg(null), 4000);
     }
-  };
-
-  // Quick Action: simulate realistic-looking demo counts (mostly 0-1, occasionally 2)
-  const handleSimulateRandom = () => {
-    const updated = localRecords.map(rec => {
-      const rand = Math.random();
-      const count = rand > 0.85 ? 2 : rand > 0.4 ? 1 : 0;
-      return { ...rec, count };
-    });
-    setLocalRecords(updated);
   };
 
   // Save this week's counts to backend — the server recomputes the cumulative-vs-objective
@@ -592,13 +581,6 @@ export default function GembaTracker({
               <span>Copier Précédente</span>
             </button>
 
-            <button
-              onClick={handleSimulateRandom}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40 rounded-lg text-xs font-bold transition-all"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Saisie Démo</span>
-            </button>
           </div>
         </div>
 

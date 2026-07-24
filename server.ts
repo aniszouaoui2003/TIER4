@@ -707,6 +707,32 @@ app.post('/api/attendance', async (req, res) => {
   });
 });
 
+// Wipe all recorded weeks and reset the auto-injected 'kpi-rh-presence' KPI to a clean slate.
+app.delete('/api/attendance', async (req, res) => {
+  const db = await readDB();
+  db.attendance = [];
+
+  const kpi = db.kpis.find(k => k.id === 'kpi-rh-presence');
+  if (kpi) {
+    kpi.weeklyValue = 0;
+    kpi.dailyValue = 0;
+    kpi.status = 'Red';
+    kpi.trend = 'stable';
+    kpi.history = [];
+  }
+
+  await writeDB(db);
+  await addAuditLog(
+    'Système (Auto)',
+    'Admin',
+    'Réinitialisation',
+    'Ressources Humaines',
+    'Toutes les données de suivi de présence ont été supprimées.'
+  );
+
+  res.json({ success: true, attendance: db.attendance });
+});
+
 // 5c. Gemba HSE weekly tracking — cumulative % vs. a configurable monthly objective per person
 app.get('/api/gemba', async (req, res) => {
   const db = await readDB();
@@ -815,6 +841,32 @@ app.post('/api/gemba', async (req, res) => {
     week,
     gemba: db.gemba
   });
+});
+
+// Wipe all recorded weeks and reset the auto-injected 'kpi-sec-gemba' KPI to a clean slate.
+app.delete('/api/gemba', async (req, res) => {
+  const db = await readDB();
+  db.gemba = [];
+
+  const kpi = db.kpis.find(k => k.id === 'kpi-sec-gemba');
+  if (kpi) {
+    kpi.weeklyValue = 0;
+    kpi.dailyValue = 0;
+    kpi.status = 'Red';
+    kpi.trend = 'stable';
+    kpi.history = [];
+  }
+
+  await writeDB(db);
+  await addAuditLog(
+    'Système (Auto)',
+    'Admin',
+    'Réinitialisation',
+    'Sécurité',
+    'Toutes les données de suivi Gemba HSE ont été supprimées.'
+  );
+
+  res.json({ success: true, gemba: db.gemba });
 });
 
 // 6. SQL Server Sync Simulator

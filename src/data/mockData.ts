@@ -969,64 +969,9 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
   { id: 'log-4', timestamp: '2026-06-25T10:00:00Z', user: 'Hélène Richard', role: 'RH', action: 'Mise à jour d\'objectif', module: 'Ressources Humaines', details: 'Modification de l\'objectif d\'absentéisme trimestriel à 4.0%.' }
 ];
 
-export const INITIAL_ATTENDANCE: WeeklyAttendance[] = [
-  {
-    week: 'Semaine 23',
-    records: [
-      { userId: 'usr-1', userName: 'Anis Zouaoui', userRole: 'DGA', userDepartment: 'Direction', status: 'Présent' },
-      { userId: 'usr-2', userName: 'Khouloud Ncibi', userRole: 'QHSE', userDepartment: 'QHSE', status: 'Présent' },
-      { userId: 'usr-3', userName: 'Ali Bacha', userRole: 'DRH', userDepartment: 'Ressources Humaines', status: 'Présent' },
-      { userId: 'usr-4', userName: 'Abdallah Dhouib', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-5', userName: 'Mahdi Moonem', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-6', userName: 'Said ben Aissa', userRole: 'Export', userDepartment: 'Export', status: 'Présent' },
-      { userId: 'usr-7', userName: 'Mokded Nasri', userRole: 'CG', userDepartment: 'Finance', status: 'Présent' },
-      { userId: 'usr-8', userName: 'Jamel Ferchichi', userRole: 'Tech', userDepartment: 'Technique', status: 'Délégué' },
-      { userId: 'usr-9', userName: 'Mhamed Nasri', userRole: 'DAF', userDepartment: 'Finance', status: 'Présent' }
-    ]
-  },
-  {
-    week: 'Semaine 24',
-    records: [
-      { userId: 'usr-1', userName: 'Anis Zouaoui', userRole: 'DGA', userDepartment: 'Direction', status: 'Présent' },
-      { userId: 'usr-2', userName: 'Khouloud Ncibi', userRole: 'QHSE', userDepartment: 'QHSE', status: 'Présent' },
-      { userId: 'usr-3', userName: 'Ali Bacha', userRole: 'DRH', userDepartment: 'Ressources Humaines', status: 'Présent' },
-      { userId: 'usr-4', userName: 'Abdallah Dhouib', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-5', userName: 'Mahdi Moonem', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-6', userName: 'Said ben Aissa', userRole: 'Export', userDepartment: 'Export', status: 'Présent' },
-      { userId: 'usr-7', userName: 'Mokded Nasri', userRole: 'CG', userDepartment: 'Finance', status: 'Présent' },
-      { userId: 'usr-8', userName: 'Jamel Ferchichi', userRole: 'Tech', userDepartment: 'Technique', status: 'Présent' },
-      { userId: 'usr-9', userName: 'Mhamed Nasri', userRole: 'DAF', userDepartment: 'Finance', status: 'Présent' }
-    ]
-  },
-  {
-    week: 'Semaine 25',
-    records: [
-      { userId: 'usr-1', userName: 'Anis Zouaoui', userRole: 'DGA', userDepartment: 'Direction', status: 'Présent' },
-      { userId: 'usr-2', userName: 'Khouloud Ncibi', userRole: 'QHSE', userDepartment: 'QHSE', status: 'Présent' },
-      { userId: 'usr-3', userName: 'Ali Bacha', userRole: 'DRH', userDepartment: 'Ressources Humaines', status: 'Absent' },
-      { userId: 'usr-4', userName: 'Abdallah Dhouib', userRole: 'Prod', userDepartment: 'Production', status: 'Délégué' },
-      { userId: 'usr-5', userName: 'Mahdi Moonem', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-6', userName: 'Said ben Aissa', userRole: 'Export', userDepartment: 'Export', status: 'Présent' },
-      { userId: 'usr-7', userName: 'Mokded Nasri', userRole: 'CG', userDepartment: 'Finance', status: 'Présent' },
-      { userId: 'usr-8', userName: 'Jamel Ferchichi', userRole: 'Tech', userDepartment: 'Technique', status: 'Présent' },
-      { userId: 'usr-9', userName: 'Mhamed Nasri', userRole: 'DAF', userDepartment: 'Finance', status: 'Présent' }
-    ]
-  },
-  {
-    week: 'Semaine 26',
-    records: [
-      { userId: 'usr-1', userName: 'Anis Zouaoui', userRole: 'DGA', userDepartment: 'Direction', status: 'Présent' },
-      { userId: 'usr-2', userName: 'Khouloud Ncibi', userRole: 'QHSE', userDepartment: 'QHSE', status: 'Présent' },
-      { userId: 'usr-3', userName: 'Ali Bacha', userRole: 'DRH', userDepartment: 'Ressources Humaines', status: 'Absent' },
-      { userId: 'usr-4', userName: 'Abdallah Dhouib', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-5', userName: 'Mahdi Moonem', userRole: 'Prod', userDepartment: 'Production', status: 'Présent' },
-      { userId: 'usr-6', userName: 'Said ben Aissa', userRole: 'Export', userDepartment: 'Export', status: 'Présent' },
-      { userId: 'usr-7', userName: 'Mokded Nasri', userRole: 'CG', userDepartment: 'Finance', status: 'Présent' },
-      { userId: 'usr-8', userName: 'Jamel Ferchichi', userRole: 'Tech', userDepartment: 'Technique', status: 'Délégué' },
-      { userId: 'usr-9', userName: 'Mhamed Nasri', userRole: 'DAF', userDepartment: 'Finance', status: 'Présent' }
-    ]
-  }
-];
+// No historical attendance pre-seeded — real tracking starts from whenever a week is first
+// saved, matching INITIAL_GEMBA below.
+export const INITIAL_ATTENDANCE: WeeklyAttendance[] = [];
 
 // Monthly Gemba HSE objective per person (e.g. 2 = each person should complete 2 Gemba
 // walks per month). Configurable from the Suivi Gemba HSE tab.

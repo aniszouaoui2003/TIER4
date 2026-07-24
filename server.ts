@@ -57,6 +57,10 @@ interface DataStoreSchema {
   attendance: typeof INITIAL_ATTENDANCE;
   gemba: typeof INITIAL_GEMBA;
   gembaMonthlyTarget: number;
+  // One-time flag for the meeting activeStepIndex remap below — the numeric shift alone isn't
+  // idempotent (a post-migration Clôture at the new index 8 is indistinguishable by value alone
+  // from a not-yet-migrated old index 8), so it can only run once, guarded by this flag.
+  meetingStepsMigrated?: boolean;
 }
 
 function evaluateKPIStatus(value: number, target: number, name: string, category: string): 'Green' | 'Orange' | 'Red' {
@@ -348,6 +352,56 @@ function recalculateAllFormulas(db: DataStoreSchema) {
   }
 }
 
+// One-time migration for the '5S' + 'Environnement' category merge into 'Amélioration
+// continue': remaps KPI categories, action departments, meeting agenda step comments/decisions
+// (merging the two old keys' text together), and the persisted `activeStepIndex` of any meeting
+// (the old agenda had 5S at index 7, Environnement at 8, Clôture at 9; the new one merges 7+8
+// into a single "Amélioration continue" slot at 7 and Clôture moves to 8). Returns whether
+// anything actually changed, so callers only persist when needed.
+function migrateAmeliorationContinueCategory(data: DataStoreSchema): boolean {
+  let changed = false;
+
+  data.kpis?.forEach((k: any) => {
+    if (k.category === '5S' || k.category === 'Environnement') {
+      k.category = 'Amélioration continue';
+      changed = true;
+    }
+  });
+
+  data.actions?.forEach((a: any) => {
+    if (a.department === '5S' || a.department === 'Environnement') {
+      a.department = 'Amélioration continue';
+      changed = true;
+    }
+  });
+
+  if (!data.meetingStepsMigrated) {
+    data.meetings?.forEach((m: any) => {
+      if (typeof m.activeStepIndex === 'number' && m.activeStepIndex >= 8) {
+        m.activeStepIndex -= 1;
+      }
+    });
+    data.meetingStepsMigrated = true;
+    changed = true;
+  }
+
+  data.meetings?.forEach((m: any) => {
+    (['stepComments', 'stepDecisions'] as const).forEach(field => {
+      const obj = m[field];
+      if (!obj || (!('5S' in obj) && !('Environnement' in obj))) return;
+      const merged = [obj['5S'], obj['Environnement']].filter(Boolean).join(' ');
+      if (merged) {
+        obj['Amélioration continue'] = obj['Amélioration continue'] ? `${obj['Amélioration continue']} ${merged}` : merged;
+      }
+      delete obj['5S'];
+      delete obj['Environnement'];
+      changed = true;
+    });
+  });
+
+  return changed;
+}
+
 async function readDB(): Promise<DataStoreSchema> {
   try {
     const data = await loadRaw<DataStoreSchema>();
@@ -374,6 +428,7 @@ async function readDB(): Promise<DataStoreSchema> {
 
       if (!data.meetings || hasOldMeetings) {
         data.meetings = INITIAL_MEETINGS;
+        data.meetingStepsMigrated = true;
         modified = true;
       }
 
@@ -389,6 +444,10 @@ async function readDB(): Promise<DataStoreSchema> {
 
       if (data.gembaMonthlyTarget === undefined || data.gembaMonthlyTarget === null) {
         data.gembaMonthlyTarget = INITIAL_GEMBA_TARGET;
+        modified = true;
+      }
+
+      if (migrateAmeliorationContinueCategory(data)) {
         modified = true;
       }
 
@@ -411,7 +470,8 @@ async function readDB(): Promise<DataStoreSchema> {
     users: INITIAL_USERS,
     attendance: INITIAL_ATTENDANCE,
     gemba: INITIAL_GEMBA,
-    gembaMonthlyTarget: INITIAL_GEMBA_TARGET
+    gembaMonthlyTarget: INITIAL_GEMBA_TARGET,
+    meetingStepsMigrated: true
   };
   await writeDB(defaultData);
   return defaultData;
@@ -761,10 +821,10 @@ app.post('/api/meetings', async (req, res) => {
     activeStepIndex: 0,
     attendees: req.body.attendees || INITIAL_MEETINGS[0].attendees,
     stepComments: {
-      'Sécurité': '', 'Qualité': '', 'Livraison': '', 'Production': '', 'Coût': '', 'Maintenance': '', 'RH': '', '5S': '', 'Environnement': ''
+      'Sécurité': '', 'Qualité': '', 'Livraison': '', 'Production': '', 'Coût': '', 'Maintenance': '', 'RH': '', 'Amélioration continue': ''
     },
     stepDecisions: {
-      'Sécurité': '', 'Qualité': '', 'Livraison': '', 'Production': '', 'Coût': '', 'Maintenance': '', 'RH': '', '5S': '', 'Environnement': ''
+      'Sécurité': '', 'Qualité': '', 'Livraison': '', 'Production': '', 'Coût': '', 'Maintenance': '', 'RH': '', 'Amélioration continue': ''
     },
     generalDecisions: []
   };
@@ -1070,7 +1130,7 @@ app.post('/api/sql-sync', async (req, res) => {
       k.status = k.weeklyValue <= 150 ? 'Green' : k.weeklyValue <= 180 ? 'Orange' : 'Red';
     } else if (k.category === 'Production' && k.name.includes('TRS')) {
       k.status = k.weeklyValue >= 80.0 ? 'Green' : k.weeklyValue >= 76.0 ? 'Orange' : 'Red';
-    } else if (k.category === 'Environnement' && k.name.includes('Électricité')) {
+    } else if (k.category === 'Amélioration continue' && k.name.includes('Électricité')) {
       k.status = k.weeklyValue <= 85.0 ? 'Green' : k.weeklyValue <= 92.0 ? 'Orange' : 'Red';
     } else {
       // Default auto
@@ -1306,7 +1366,7 @@ function getFallbackMeetingSummary(weekNumber: number) {
     actionsSuggereesIA: [
       {
         workshop: "Atelier Injection",
-        department: "Environnement",
+        department: "Amélioration continue",
         subject: "Audit de fuites d'air comprimé",
         description: "La hausse de consommation électrique suggère de potentielles fuites d'air comprimé sur le réseau de distribution moules. Programmer une recherche ultra-sons le week-end.",
         owner: "Lucas Petit"

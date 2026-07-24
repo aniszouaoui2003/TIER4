@@ -37,7 +37,7 @@ export type KPITrend = 'up' | 'down' | 'stable';
 
 export interface KPI {
   id: string;
-  category: 'Sécurité' | 'Qualité' | 'Production' | 'Coût' | 'Livraison' | 'RH' | 'Maintenance' | '5S' | 'Environnement';
+  category: 'Sécurité' | 'Qualité' | 'Production' | 'Coût' | 'Livraison' | 'RH' | 'Maintenance' | 'Amélioration continue';
   name: string;
   unit: string;
   dailyValue: number;

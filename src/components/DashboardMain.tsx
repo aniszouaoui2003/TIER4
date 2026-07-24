@@ -148,8 +148,7 @@ export default function DashboardMain({
     { id: 'Livraison', label: 'Livraison', desc: 'OTIF & Stocks', color: 'bg-amber-500' },
     { id: 'RH', label: 'RH', desc: 'Absentéisme & Polyvalence', color: 'bg-teal-500' },
     { id: 'Maintenance', label: 'Maintenance', desc: 'Disponibilité & MTBF', color: 'bg-orange-500' },
-    { id: '5S', label: '5S', desc: 'Audits de Propreté', color: 'bg-indigo-500' },
-    { id: 'Environnement', label: 'Environnement', desc: 'Eau, Élec, Déchets, CO₂', color: 'bg-lime-500' }
+    { id: 'Amélioration continue', label: 'Amélioration continue', desc: 'Audits 5S & Environnement', color: 'bg-indigo-500' }
   ];
 
   // Radar SQCDP data modeling
@@ -172,7 +171,7 @@ export default function DashboardMain({
 
   // Site & Usine Heatmap modeling
   const scopes = ['Site 1', 'Site 2', 'Total Usine'];
-  const columns = ['Sécurité', 'Qualité', 'Livraison', 'Production', 'Maintenance', '5S'];
+  const columns = ['Sécurité', 'Qualité', 'Livraison', 'Production', 'Maintenance', 'Amélioration continue'];
 
   const getHeatmapColor = (scope: string, column: string) => {
     const categoryMap: Record<string, string> = {
@@ -181,7 +180,7 @@ export default function DashboardMain({
       'Livraison': 'Livraison',
       'Production': 'Production',
       'Maintenance': 'Maintenance',
-      '5S': '5S'
+      'Amélioration continue': 'Amélioration continue'
     };
 
     const catId = categoryMap[column] || column;
@@ -451,7 +450,7 @@ export default function DashboardMain({
         </div>
       </div>
 
-      {/* 3. CORE 9 MODULES CARDS GRID */}
+      {/* 3. CORE 8 MODULES CARDS GRID */}
       <div>
         <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 font-mono">
           Indicateurs Clés par Thématiques (Pilotes Tier 4)
@@ -464,15 +463,15 @@ export default function DashboardMain({
             const mainKpi = catKpis[0] || { name: 'Aucun KPI', weeklyValue: 0, target: 0, unit: '', status: 'Green', trend: 'stable', isNotApplicable: false };
             const subKpi = catKpis[1];
 
-            // Define custom Bento spans: 
+            // Define custom Bento spans:
             // - Sécurité/Qualité/Production are 4/12 (one third of row)
             // - Coût/Livraison/RH/Maint are 3/12 (one fourth of row)
-            // - 5S/Environnement are 6/12 (half of row)
+            // - Amélioration continue closes the grid at full width (12/12)
             let colSpanClass = 'md:col-span-6 lg:col-span-4';
             if (['Coût', 'Livraison', 'RH', 'Maintenance'].includes(cat.id)) {
               colSpanClass = 'md:col-span-6 lg:col-span-3';
-            } else if (['5S', 'Environnement'].includes(cat.id)) {
-              colSpanClass = 'md:col-span-6 lg:col-span-6';
+            } else if (cat.id === 'Amélioration continue') {
+              colSpanClass = 'md:col-span-12 lg:col-span-12';
             }
 
             // Glow effects based on status

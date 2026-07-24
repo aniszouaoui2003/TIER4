@@ -446,8 +446,7 @@ export default function AdminSettings({
                       <option value="Coût">Coût</option>
                       <option value="Maintenance">Maintenance</option>
                       <option value="RH">RH</option>
-                      <option value="5S">5S</option>
-                      <option value="Environnement">Environnement</option>
+                      <option value="Amélioration continue">Amélioration continue</option>
                     </select>
                   </div>
 

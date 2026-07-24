@@ -10,8 +10,7 @@ import {
   Zap,
   Users,
   Wrench,
-  CheckSquare,
-  Droplet,
+  Sparkles,
   Calendar,
   ShieldAlert,
   CalendarRange
@@ -54,8 +53,7 @@ export default function ModuleDetail({
     { id: 'Livraison', label: 'Livraison', icon: Calendar, color: 'border-b-2 border-b-amber-500 text-amber-600' },
     { id: 'RH', label: 'RH', icon: Users, color: 'border-b-2 border-b-teal-500 text-teal-600' },
     { id: 'Maintenance', label: 'Maintenance', icon: Wrench, color: 'border-b-2 border-b-orange-500 text-orange-600' },
-    { id: '5S', label: '5S', icon: CheckSquare, color: 'border-b-2 border-b-indigo-500 text-indigo-600' },
-    { id: 'Environnement', label: 'Environnement', icon: Droplet, color: 'border-b-2 border-b-lime-500 text-lime-600' }
+    { id: 'Amélioration continue', label: 'Amélioration continue', icon: Sparkles, color: 'border-b-2 border-b-indigo-500 text-indigo-600' }
   ];
 
   const currentModuleKpis = kpis.filter(k => k.category === selectedModuleId);

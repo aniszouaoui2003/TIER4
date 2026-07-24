@@ -70,7 +70,7 @@ export default function ActionPlan({
 
   // Dropdown lists
   const workshops = ['Site 1', 'Site 2', 'Total Usine'];
-  const depts = ['Sécurité', 'Qualité', 'Production', 'Coût', 'Livraison', 'RH', 'Maintenance', '5S', 'Environnement'];
+  const depts = ['Sécurité', 'Qualité', 'Production', 'Coût', 'Livraison', 'RH', 'Maintenance', 'Amélioration continue'];
   const priorities = ['Basse', 'Moyenne', 'Haute', 'Critique'];
   const statuses = ['A faire', 'En cours', 'A valider', 'Clôturé'];
 

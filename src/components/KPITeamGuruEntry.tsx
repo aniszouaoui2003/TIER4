@@ -47,8 +47,7 @@ const CATEGORY_BADGES: Record<string, string> = {
   'Livraison': 'bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-900/40',
   'RH': 'bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-900/40',
   'Maintenance': 'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-900/40',
-  '5S': 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-900/40',
-  'Environnement': 'bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-900/40'
+  'Amélioration continue': 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-900/40'
 };
 
 export default function KPITeamGuruEntry({
@@ -113,8 +112,7 @@ export default function KPITeamGuruEntry({
     'Livraison',
     'RH',
     'Maintenance',
-    '5S',
-    'Environnement'
+    'Amélioration continue'
   ];
 
   // Sync edits reset when KPIs from parent change

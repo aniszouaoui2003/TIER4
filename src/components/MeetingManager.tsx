@@ -94,8 +94,7 @@ export default function MeetingManager({
     { id: 'Coût', label: '5. Coût', color: 'bg-violet-500', text: 'bg-violet-50 text-violet-800' },
     { id: 'Maintenance', label: '6. Maintenance', color: 'bg-orange-500', text: 'bg-orange-50 text-orange-800' },
     { id: 'RH', label: '7. RH', color: 'bg-teal-500', text: 'bg-teal-50 text-teal-800' },
-    { id: '5S', label: '8. 5S', color: 'bg-indigo-500', text: 'bg-indigo-50 text-indigo-800' },
-    { id: 'Environnement', label: '9. Environnement', color: 'bg-lime-500', text: 'bg-lime-50 text-lime-800' },
+    { id: 'Amélioration continue', label: '8. Amélioration continue', color: 'bg-indigo-500', text: 'bg-indigo-50 text-indigo-800' },
     { id: 'Clôture', label: 'Synthèse & Signature', color: 'bg-slate-700', text: 'bg-slate-100 text-slate-800' }
   ];
 

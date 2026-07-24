@@ -700,10 +700,10 @@ export const INITIAL_KPIS: KPI[] = [
     history: []
   },
 
-  // === AMÉLIORATION / 5S / ENVIRONNEMENT ===
+  // === AMÉLIORATION CONTINUE ===
   {
     id: 'kpi-env-tier',
-    category: 'Environnement',
+    category: 'Amélioration continue',
     name: 'adherence au Tier meeting',
     unit: '%',
     dailyValue: 0,
@@ -727,7 +727,7 @@ export const INITIAL_KPIS: KPI[] = [
   },
   {
     id: 'kpi-5s-score',
-    category: '5S',
+    category: 'Amélioration continue',
     name: '% score 5S',
     unit: '%',
     dailyValue: 0,
@@ -862,7 +862,7 @@ export const INITIAL_ACTIONS: Action[] = [
     autoNum: 'ACT-2026-006',
     date: '2026-06-26',
     workshop: 'Total Usine',
-    department: '5S',
+    department: 'Amélioration continue',
     subject: 'Mise en place de marquages au sol standardisés',
     description: 'Score 5S en baisse sur la thématique "Seiton" (Rangement). Absence d\'harmonisation des couleurs de délimitation de zones de stockage temporaire (rebuts, encours, emballages vides).',
     rootCause: 'Disparition progressive des lignes peintes et utilisation de rubans adhésifs de couleurs disparates achetés hors-standard.',
@@ -907,8 +907,7 @@ export const INITIAL_MEETINGS: Meeting[] = [
       'Coût': 'Rebuts matières en hausse suite aux réglages de démarrage sur la ligne d\'injection.',
       'Maintenance': 'Arrêt majeur constaté sur l\'échangeur du moteur de la ligne CNC-4. L\'équipe a fait un superbe travail pour une réouverture dimanche.',
       'RH': 'Absentéisme en hausse (5.8% au lieu de 4%) lié aux épidémies saisonnières et fatigue des équipes de nuit.',
-      '5S': 'Le rangement de fin de poste s\'est relâché dans l\'Atelier Assemblage. Action marquage à mener.',
-      'Environnement': 'Tendance à la hausse de la facture énergétique liée aux périodes de canicule qui ont sollicité les refroidisseurs au maximum.'
+      'Amélioration continue': 'Le rangement de fin de poste s\'est relâché dans l\'Atelier Assemblage. Action marquage à mener. Tendance à la hausse de la facture énergétique liée aux périodes de canicule qui ont sollicité les refroidisseurs au maximum.'
     },
     stepDecisions: {
       'Sécurité': 'Maintenir l\'effort sur les VSS hebdomadaires.',
@@ -918,8 +917,7 @@ export const INITIAL_MEETINGS: Meeting[] = [
       'Coût': 'Lancer un audit de réglage presse lors des changements de moules.',
       'Maintenance': 'Intégrer le nettoyage préventif des échangeurs au plan de maintenance autonome.',
       'RH': 'Faire appel à l\'intérim pour compenser les absences critiques de l\'équipe C.',
-      '5S': 'Camille Moreau pilote un chantier de réimplantation 5S flash vendredi après-midi.',
-      'Environnement': 'Mettre en place une consigne d\'allumage partiel des refroidisseurs lors des week-ends.'
+      'Amélioration continue': 'Camille Moreau pilote un chantier de réimplantation 5S flash vendredi après-midi. Mettre en place une consigne d\'allumage partiel des refroidisseurs lors des week-ends.'
     },
     generalDecisions: [
       'Validation de la mise à jour des objectifs trimestriels pour le TRS.',
@@ -941,7 +939,7 @@ export const INITIAL_MEETINGS: Meeting[] = [
       { name: 'Mahdi Moonem', role: 'Prod', email: 'm.moonem@officeplast.com', present: true, signed: true, signatureDate: '2026-06-22T11:49:00Z' },
       { name: 'Mhamed Nasri', role: 'DAF', email: 'mhamed.nasri@officeplast.com', present: true, signed: true, signatureDate: '2026-06-22T11:50:00Z' }
     ],
-    activeStepIndex: 9,
+    activeStepIndex: 8,
     stepComments: {},
     stepDecisions: {},
     generalDecisions: [

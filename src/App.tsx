@@ -352,37 +352,6 @@ export default function App() {
     }
   };
 
-  // 11. IMPORT EXCEL DATA (SIMULATED BY SENDING A TEST PAYLOAD)
-  const handleExcelImport = async (fileContent: string) => {
-    if (!currentUser) return;
-    try {
-      // Simulate randomizing OEE and PPM values slightly from excel
-      const randomizedItems = kpis.map(k => ({
-        id: k.id,
-        name: k.name,
-        dailyValue: Number((k.dailyValue + (Math.random() - 0.5) * 5).toFixed(1)),
-        weeklyValue: Number((k.weeklyValue + (Math.random() - 0.5) * 5).toFixed(1)),
-        target: k.target
-      }));
-
-      const response = await fetch('/api/excel-import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: 'atelier_kpis_import_S26.xlsx',
-          items: randomizedItems,
-          user: currentUser.name,
-          role: currentUser.role
-        })
-      });
-      if (!response.ok) throw new Error('Échec de l\'import Excel');
-      await refreshKpisAndLogs();
-    } catch (err: any) {
-      alert(`Erreur import Excel : ${err.message}`);
-    }
-  };
-
-
   // LOADING STATE VISUALIZER
   if (loading) {
     return (
@@ -511,7 +480,7 @@ export default function App() {
               onAddUser={handleAddUser}
               onUpdateSQLConfig={handleUpdateSQLConfig}
               onTriggerSQLSync={handleTriggerSQLSync}
-              onExcelImport={handleExcelImport}
+              onBulkUpdateKPIs={handleBulkUpdateKPIs}
               currentUser={currentUser}
               defaultTab="sql"
             />
@@ -529,7 +498,7 @@ export default function App() {
               onAddUser={handleAddUser}
               onUpdateSQLConfig={handleUpdateSQLConfig}
               onTriggerSQLSync={handleTriggerSQLSync}
-              onExcelImport={handleExcelImport}
+              onBulkUpdateKPIs={handleBulkUpdateKPIs}
               currentUser={currentUser}
               defaultTab="kpis"
             />

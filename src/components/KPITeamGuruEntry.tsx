@@ -20,10 +20,14 @@ import {
   CalendarRange,
   Factory,
   Sigma,
-  Pencil
+  Pencil,
+  Download,
+  Upload
 } from 'lucide-react';
 import { KPI, KPIStatus, User } from '../types';
 import { CURRENT_YEAR, CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
+import { downloadWorkbook, readWorkbook } from '../utils/excelIO';
+import { buildExportSheet, parseImportRows, FORMULA_KPI_IDS } from '../utils/kpiExcelData';
 
 interface KPITeamGuruEntryProps {
   kpis: KPI[];
@@ -47,16 +51,6 @@ const CATEGORY_BADGES: Record<string, string> = {
   'Environnement': 'bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-900/40'
 };
 
-const FORMULA_KPI_IDS = [
-  'kpi-qual-conformite',
-  'kpi-prod-productivite',
-  'kpi-cost-ratio',
-  'kpi-cost-valeur-produite',
-  'kpi-cost-taux-dechet',
-  'kpi-rh-presence',
-  'kpi-sec-gemba'
-];
-
 export default function KPITeamGuruEntry({
   kpis,
   onBulkUpdateKPIs,
@@ -78,6 +72,8 @@ export default function KPITeamGuruEntry({
   const [localEdits, setLocalEdits] = useState<Record<string, Partial<KPI>>>({});
   const [saving, setSaving] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [importing, setImporting] = useState<boolean>(false);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   // The right panel's header must stay sticky-top relative to the page scroller, but
   // `overflow-x: auto` on its scrollable body forces `overflow-y` to a non-visible value too
@@ -549,6 +545,60 @@ export default function KPITeamGuruEntry({
 
   const modifiedCount = Object.keys(localEdits).length;
 
+  // Exports exactly the current view (period axis, site, category/search/"my KPIs" filters)
+  // to .xlsx. Auto-calculated KPIs and site-summed Total rows are still shown, marked
+  // "Non" under Modifiable, since re-importing them is a no-op by design.
+  const handleExportExcel = async () => {
+    const periodLabel = periodMode === 'monthly' ? 'Mensuel' : 'Hebdomadaire';
+    const siteLabel = siteView === 'total' ? 'Total Site' : siteView === 'site1' ? 'Site 1' : 'Site 2';
+    const { headers, rows } = buildExportSheet(filteredKPIs, periodMode, siteView, FORMULA_KPI_IDS);
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    try {
+      await downloadWorkbook({
+        sheetName: 'Saisie KPIs',
+        metaRows: [
+          ['Vue :', `${periodLabel} — ${siteLabel} — ${selectedCategory}`],
+          ['Exporté le :', dateStr]
+        ],
+        headers,
+        rows,
+        filename: `Saisie_KPIs_${periodLabel}_${siteLabel.replace(' ', '')}_${dateStr}.xlsx`
+      });
+    } catch (err: any) {
+      alert(`Erreur d'export : ${err.message}`);
+    }
+  };
+
+  // Imports an .xlsx file into local edits for review — same landing spot as manual typing, so
+  // imported values show as "Modifié" and only persist once "Enregistrer Tout" is clicked.
+  const handleImportFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const parsed = await readWorkbook(file);
+      const { updates, appliedCount, skipped } = parseImportRows(parsed, kpis, FORMULA_KPI_IDS, localEdits);
+
+      if (appliedCount > 0) {
+        setLocalEdits(prev => ({ ...prev, ...updates }));
+      }
+
+      const skippedNote = skipped.length > 0
+        ? `\n\n${skipped.length} ligne(s) ignorée(s) :\n${skipped.slice(0, 10).join('\n')}${skipped.length > 10 ? `\n… et ${skipped.length - 10} autre(s)` : ''}`
+        : '';
+      alert(`Import terminé : ${appliedCount} valeur(s) appliquée(s) sur ${Object.keys(updates).length} indicateur(s).${skippedNote}${appliedCount > 0 ? '\n\nVérifiez la grille puis cliquez sur "Enregistrer Tout" pour confirmer.' : ''}`);
+    } catch (err: any) {
+      alert(`Erreur d'import : ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // Explicit pixel widths for the two independently-scrolling panels (see renderRow for why).
   const FROZEN_COLUMNS = '112px 224px 56px 64px 80px';
   const periodColWidth = periodMode === 'monthly' ? 80 : 64;
@@ -780,6 +830,31 @@ export default function KPITeamGuruEntry({
 
         {/* Bulk tools */}
         <div className="flex items-center gap-2">
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".xlsx"
+            className="hidden"
+            onChange={handleImportFileSelected}
+          />
+          <button
+            onClick={() => importFileInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+            title="Importer les valeurs de la vue actuelle depuis un fichier Excel"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>{importing ? 'Import…' : 'Importer Excel'}</span>
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold transition-all"
+            title="Exporter la vue actuelle (période, site, catégorie) en Excel"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Exporter Excel</span>
+          </button>
+
           {modifiedCount > 0 && (
             <>
               <button

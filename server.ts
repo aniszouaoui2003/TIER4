@@ -980,40 +980,6 @@ app.post('/api/sql-sync', async (req, res) => {
   res.json({ success: true, lastSyncTime: db.sqlConfig.lastSyncTime, updatedKpis: db.kpis });
 });
 
-// 7. Simulated Excel Import
-app.post('/api/excel-import', async (req, res) => {
-  const db = await readDB();
-  const { fileName, items } = req.body;
-
-  if (!items || !Array.isArray(items)) {
-    return res.status(400).json({ error: 'Données d\'importation non valides' });
-  }
-
-  let updatedCount = 0;
-  items.forEach((item: any) => {
-    const kpi = db.kpis.find(k => k.id === item.id || k.name.toLowerCase() === String(item.name).toLowerCase());
-    if (kpi) {
-      if (item.dailyValue !== undefined) kpi.dailyValue = Number(item.dailyValue);
-      if (item.weeklyValue !== undefined) kpi.weeklyValue = Number(item.weeklyValue);
-      if (item.target !== undefined) kpi.target = Number(item.target);
-      updatedCount++;
-    }
-  });
-
-  await writeDB(db);
-
-  await addAuditLog(
-    req.body.user || 'Administrateur',
-    req.body.role || 'Admin',
-    'Importation Excel',
-    'Administration',
-    `Importation de ${updatedCount} indicateurs de performance depuis le fichier [${fileName || 'kpi_export.xlsx'}]`
-  );
-
-  res.json({ success: true, updatedCount });
-});
-
-
 // ==========================================
 // server-side GEMINI AI API IMPLEMENTATION
 // ==========================================

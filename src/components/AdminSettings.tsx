@@ -25,6 +25,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { KPI, SQLServerConfig, AuditLog, User, UserRole } from '../types';
+import { downloadWorkbook, readWorkbook } from '../utils/excelIO';
+import { buildExportSheet, parseImportRows, FORMULA_KPI_IDS } from '../utils/kpiExcelData';
 
 interface AdminSettingsProps {
   kpis: KPI[];
@@ -37,7 +39,7 @@ interface AdminSettingsProps {
   onAddUser: (user: Omit<User, 'id'>) => Promise<void>;
   onUpdateSQLConfig: (config: Partial<SQLServerConfig>) => Promise<void>;
   onTriggerSQLSync: () => Promise<void>;
-  onExcelImport: (fileContent: string) => Promise<void>;
+  onBulkUpdateKPIs: (updates: Record<string, Partial<KPI>>) => Promise<void>;
   currentUser: User;
   defaultTab?: 'kpis' | 'users' | 'sql' | 'excel' | 'logs';
 }
@@ -53,7 +55,7 @@ export default function AdminSettings({
   onAddUser,
   onUpdateSQLConfig,
   onTriggerSQLSync,
-  onExcelImport,
+  onBulkUpdateKPIs,
   currentUser,
   defaultTab
 }: AdminSettingsProps) {
@@ -67,8 +69,12 @@ export default function AdminSettings({
     }
   }, [defaultTab]);
 
-  // Excel simulation state
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+  // Excel import/export state
+  const [excelPeriodMode, setExcelPeriodMode] = useState<'monthly' | 'weekly'>('weekly');
+  const [excelSiteView, setExcelSiteView] = useState<'total' | 'site1' | 'site2'>('total');
+  const [excelImporting, setExcelImporting] = useState(false);
+  const [excelStatus, setExcelStatus] = useState<string | null>(null);
+  const excelFileInputRef = React.useRef<HTMLInputElement>(null);
   const [syncing, setSyncing] = useState(false);
 
   // Editing state
@@ -126,14 +132,67 @@ export default function AdminSettings({
     alert('Synchronisation complète avec SQL Server effectuée. Les tables de faits d\'usine ont été actualisées.');
   };
 
-  // Simulating Excel Import
-  const handleExcelUploadSimulate = async () => {
-    setImportStatus('Lecture du fichier .xlsx...');
-    setTimeout(async () => {
-      await onExcelImport('Simulated Excel Base');
-      setImportStatus('Succès : 14 indicateurs mis à jour et historisés.');
-      setTimeout(() => setImportStatus(null), 3500);
-    }, 1500);
+  // Exports the entire KPI base (all categories) for the selected period/site axis.
+  const handleExcelExport = async () => {
+    const periodLabel = excelPeriodMode === 'monthly' ? 'Mensuel' : 'Hebdomadaire';
+    const siteLabel = excelSiteView === 'total' ? 'Total Site' : excelSiteView === 'site1' ? 'Site 1' : 'Site 2';
+    const { headers, rows } = buildExportSheet(kpis, excelPeriodMode, excelSiteView, FORMULA_KPI_IDS);
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    try {
+      await downloadWorkbook({
+        sheetName: 'Base KPIs',
+        metaRows: [
+          ['Vue :', `${periodLabel} — ${siteLabel} — Toutes catégories`],
+          ['Exporté le :', dateStr]
+        ],
+        headers,
+        rows,
+        filename: `Base_KPIs_${periodLabel}_${siteLabel.replace(' ', '')}_${dateStr}.xlsx`
+      });
+    } catch (err: any) {
+      alert(`Erreur d'export : ${err.message}`);
+    }
+  };
+
+  // Imports an .xlsx file and saves it immediately (there's no live grid here to stage edits
+  // in first, so the parsed summary is shown for confirmation before writing).
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setExcelImporting(true);
+    setExcelStatus('Lecture du fichier .xlsx…');
+    try {
+      const parsed = await readWorkbook(file);
+      const { updates, appliedCount, skipped } = parseImportRows(parsed, kpis, FORMULA_KPI_IDS);
+
+      if (appliedCount === 0) {
+        setExcelStatus(null);
+        alert(`Aucune valeur importable dans ce fichier.${skipped.length > 0 ? `\n\n${skipped.slice(0, 10).join('\n')}` : ''}`);
+        return;
+      }
+
+      const kpiCount = Object.keys(updates).length;
+      const skippedNote = skipped.length > 0 ? `\n${skipped.length} ligne(s) ignorée(s) (calculées automatiquement ou introuvables).` : '';
+      const confirmed = confirm(`Importer ${appliedCount} valeur(s) pour ${kpiCount} indicateur(s) ?${skippedNote}\n\nCette action écrase directement les valeurs existantes pour ces périodes.`);
+      if (!confirmed) {
+        setExcelStatus(null);
+        return;
+      }
+
+      await onBulkUpdateKPIs(updates);
+      setExcelStatus(`Succès : ${appliedCount} valeur(s) importée(s) pour ${kpiCount} indicateur(s).`);
+      setTimeout(() => setExcelStatus(null), 4000);
+    } catch (err: any) {
+      setExcelStatus(null);
+      alert(`Erreur d'import : ${err.message}`);
+    } finally {
+      setExcelImporting(false);
+    }
   };
 
   const handleStartEdit = (k: KPI) => {
@@ -866,36 +925,62 @@ export default function AdminSettings({
           </div>
         )}
 
-        {/* PANEL 4: EXCEL / PDF IMPORT EXPORT */}
+        {/* PANEL 4: EXCEL IMPORT / EXPORT */}
         {activeAdminTab === 'excel' && (
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs max-w-xl mx-auto space-y-6 text-center text-xs">
-            <FileSpreadsheet className="w-12 h-12 text-emerald-600 mx-auto animate-bounce" />
-            <div>
-              <h3 className="text-base font-bold text-slate-800 dark:text-white">Passerelle Standardisée d'Échanges d'Usine</h3>
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs max-w-xl mx-auto space-y-6 text-xs">
+            <div className="text-center">
+              <FileSpreadsheet className="w-12 h-12 text-emerald-600 mx-auto" />
+              <h3 className="text-base font-bold text-slate-800 dark:text-white mt-2">Import / Export Excel — Base KPIs complète</h3>
               <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto leading-normal">
-                Importez à tout moment vos fichiers Excel de sites pour écraser ou alimenter les KPI du jour. Exportez la base consolidée des plans d'actions pour archivage.
+                Exportez ou réimportez les valeurs de tous les indicateurs, tous catégories confondues. Pour un export limité à la vue affichée (catégorie, recherche), utilisez le bouton dédié dans l'onglet Saisie KPIs.
               </p>
             </div>
 
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <select
+                value={excelPeriodMode}
+                onChange={(e) => setExcelPeriodMode(e.target.value as 'monthly' | 'weekly')}
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="weekly">Vue Hebdomadaire</option>
+                <option value="monthly">Vue Mensuelle</option>
+              </select>
+              <select
+                value={excelSiteView}
+                onChange={(e) => setExcelSiteView(e.target.value as 'total' | 'site1' | 'site2')}
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="total">Total Site</option>
+                <option value="site1">Site 1</option>
+                <option value="site2">Site 2</option>
+              </select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
-              <div className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2">
+              <div className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2 text-center">
                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Importation</span>
-                <p className="text-[10px] text-slate-500 leading-normal">Uploadez le tableau de Site (.xlsx / .csv)</p>
+                <p className="text-[10px] text-slate-500 leading-normal">Charger un fichier .xlsx exporté depuis l'application</p>
+                <input
+                  ref={excelFileInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  className="hidden"
+                  onChange={handleExcelImport}
+                />
                 <button
-                  onClick={handleExcelUploadSimulate}
-                  className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded cursor-pointer transition-all"
+                  onClick={() => excelFileInputRef.current?.click()}
+                  disabled={excelImporting}
+                  className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded cursor-pointer transition-all disabled:opacity-50"
                 >
-                  Charger Excel
+                  {excelImporting ? 'Import…' : 'Charger Excel'}
                 </button>
               </div>
 
-              <div className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2">
+              <div className="p-4 border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-2 text-center">
                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Exportation</span>
-                <p className="text-[10px] text-slate-500 leading-normal">Téléchargez l'intégralité du registre d'actions</p>
+                <p className="text-[10px] text-slate-500 leading-normal">Télécharger la base complète des indicateurs</p>
                 <button
-                  onClick={() => {
-                    alert('Exportation Excel lancée : le fichier "Registre_Tier_4_S26_Consolide.xlsx" est en cours de téléchargement.');
-                  }}
+                  onClick={handleExcelExport}
                   className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded cursor-pointer transition-all"
                 >
                   Exporter Excel
@@ -903,9 +988,9 @@ export default function AdminSettings({
               </div>
             </div>
 
-            {importStatus && (
-              <p className="text-xs font-mono font-bold text-blue-600 animate-pulse">
-                {importStatus}
+            {excelStatus && (
+              <p className="text-xs font-mono font-bold text-blue-600 text-center animate-pulse">
+                {excelStatus}
               </p>
             )}
           </div>

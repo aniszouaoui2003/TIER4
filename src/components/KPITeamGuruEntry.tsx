@@ -772,7 +772,7 @@ export default function KPITeamGuruEntry({
               <Grid className="w-5 h-5" />
             </span>
             <h1 className="font-display font-bold text-lg text-slate-900 dark:text-white uppercase tracking-tight">
-              Saisie Grid - Matrice TeamGuru
+              Saisie KPIs - Matrice SQCDP
             </h1>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">

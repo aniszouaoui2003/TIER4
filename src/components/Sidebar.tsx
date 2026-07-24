@@ -45,7 +45,7 @@ export default function Sidebar({
   const navItems = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard },
     { id: 'modules', label: 'Indicateurs Métiers', icon: TrendingUp },
-    { id: 'kpi-entry', label: 'Saisie TeamGuru', icon: Grid },
+    { id: 'kpi-entry', label: 'Saisie KPIs', icon: Grid },
     { id: 'presence-tracker', label: 'Suivi Présence', icon: Users },
     { id: 'gemba-tracker', label: 'Suivi Gemba HSE', icon: Footprints },
     { id: 'actions', label: 'Plan d\'Actions', icon: ClipboardList },

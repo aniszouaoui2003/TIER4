@@ -95,10 +95,24 @@ function updateKPIHistory(kpi: any, week: string, value: number) {
   }
 }
 
+// A formula KPI has nothing to compute from until at least one of its raw inputs has a
+// recorded value or history entry — until then, leave it untouched instead of manufacturing
+// a fallback "100%" (or "0%") reading out of an empty dataset.
+function hasRecordedData(...kpis: (typeof INITIAL_KPIS[number] | undefined)[]): boolean {
+  return kpis.some(k => k && (k.weeklyValue !== 0 || (k.history && k.history.length > 0)));
+}
+
+// Only backfill weeks the raw inputs actually recorded — never a fixed legacy week range.
+function recordedWeeks(...kpis: (typeof INITIAL_KPIS[number] | undefined)[]): string[] {
+  const weeks = new Set<string>();
+  kpis.forEach(k => k?.history?.forEach(h => weeks.add(h.date)));
+  return Array.from(weeks);
+}
+
 function recalculateAllFormulas(db: DataStoreSchema) {
   if (!db.kpis) return;
 
-  const currentWeekLabel = 'Semaine 26';
+  const currentWeekLabel = `Semaine ${CURRENT_WEEK}`;
 
   // 1. Recalculate % de conformité = (PC - (NC1 * 2 + NC2)) / PC * 100
   const pc = db.kpis.find(k => k.id === 'kpi-qual-pc');
@@ -106,7 +120,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
   const nc2 = db.kpis.find(k => k.id === 'kpi-qual-nc2');
   const conf = db.kpis.find(k => k.id === 'kpi-qual-conformite');
 
-  if (conf) {
+  if (conf && hasRecordedData(pc, nc1, nc2)) {
     const pcW = pc?.weeklyValue || 0;
     const nc1W = nc1?.weeklyValue || 0;
     const nc2W = nc2?.weeklyValue || 0;
@@ -122,8 +136,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
     conf.status = evaluateKPIStatus(conf.weeklyValue, conf.target, conf.name, conf.category);
     updateKPIHistory(conf, currentWeekLabel, conf.weeklyValue);
 
-    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
-    weeks.forEach(w => {
+    recordedWeeks(pc, nc1, nc2).forEach(w => {
       const pcH = pc?.history?.find(h => h.date === w)?.value || 0;
       const nc1H = nc1?.history?.find(h => h.date === w)?.value || 0;
       const nc2H = nc2?.history?.find(h => h.date === w)?.value || 0;
@@ -137,7 +150,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
   const qp = db.kpis.find(k => k.id === 'kpi-prod-qp');
   const prod = db.kpis.find(k => k.id === 'kpi-prod-productivite');
 
-  if (prod) {
+  if (prod && hasRecordedData(qf, qp)) {
     const qfW = qf?.weeklyValue || 0;
     const qpW = qp?.weeklyValue || 0;
     prod.weeklyValue = qpW > 0 ? Number(((qfW / qpW) * 100).toFixed(1)) : 100;
@@ -149,8 +162,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
     prod.status = evaluateKPIStatus(prod.weeklyValue, prod.target, prod.name, prod.category);
     updateKPIHistory(prod, currentWeekLabel, prod.weeklyValue);
 
-    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
-    weeks.forEach(w => {
+    recordedWeeks(qf, qp).forEach(w => {
       const qfH = qf?.history?.find(h => h.date === w)?.value || 0;
       const qpH = qp?.history?.find(h => h.date === w)?.value || 0;
       const valH = qpH > 0 ? (qfH / qpH) * 100 : 100;
@@ -163,7 +175,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
   const rp = db.kpis.find(k => k.id === 'kpi-cost-rp');
   const ratio = db.kpis.find(k => k.id === 'kpi-cost-ratio');
 
-  if (ratio) {
+  if (ratio && hasRecordedData(rf, rp)) {
     const rfW = rf?.weeklyValue || 0;
     const rpW = rp?.weeklyValue || 0;
     ratio.weeklyValue = rpW > 0 ? Number(((rfW / rpW) * 100).toFixed(1)) : 100;
@@ -175,8 +187,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
     ratio.status = evaluateKPIStatus(ratio.weeklyValue, ratio.target, ratio.name, ratio.category);
     updateKPIHistory(ratio, currentWeekLabel, ratio.weeklyValue);
 
-    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
-    weeks.forEach(w => {
+    recordedWeeks(rf, rp).forEach(w => {
       const rfH = rf?.history?.find(h => h.date === w)?.value || 0;
       const rpH = rp?.history?.find(h => h.date === w)?.value || 0;
       const valH = rpH > 0 ? (rfH / rpH) * 100 : 100;
@@ -186,15 +197,14 @@ function recalculateAllFormulas(db: DataStoreSchema) {
 
   // 4. Recalculate "valeur produite" = rf (recette fabrique)
   const valProd = db.kpis.find(k => k.id === 'kpi-cost-valeur-produite');
-  if (rf && valProd) {
+  if (rf && valProd && hasRecordedData(rf)) {
     valProd.weeklyValue = rf.weeklyValue;
     valProd.dailyValue = rf.dailyValue;
     valProd.target = rf.target;
     valProd.status = evaluateKPIStatus(valProd.weeklyValue, valProd.target, valProd.name, valProd.category);
     updateKPIHistory(valProd, currentWeekLabel, valProd.weeklyValue);
 
-    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
-    weeks.forEach(w => {
+    recordedWeeks(rf).forEach(w => {
       const rfH = rf.history?.find(h => h.date === w)?.value || 0;
       updateKPIHistory(valProd, w, rfH);
     });
@@ -204,7 +214,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
   const valDechet = db.kpis.find(k => k.id === 'kpi-cost-valeur-dechet');
   const tauxDechet = db.kpis.find(k => k.id === 'kpi-cost-taux-dechet');
 
-  if (valDechet && valProd && tauxDechet) {
+  if (valDechet && valProd && tauxDechet && hasRecordedData(valDechet, valProd)) {
     const vdW = valDechet.weeklyValue || 0;
     const vpW = valProd.weeklyValue || 0;
     tauxDechet.weeklyValue = vpW > 0 ? Number(((vdW / vpW) * 100).toFixed(2)) : 0;
@@ -216,8 +226,7 @@ function recalculateAllFormulas(db: DataStoreSchema) {
     tauxDechet.status = evaluateKPIStatus(tauxDechet.weeklyValue, tauxDechet.target, tauxDechet.name, tauxDechet.category);
     updateKPIHistory(tauxDechet, currentWeekLabel, tauxDechet.weeklyValue);
 
-    const weeks = ['Semaine 23', 'Semaine 24', 'Semaine 25', 'Semaine 26'];
-    weeks.forEach(w => {
+    recordedWeeks(valDechet, valProd).forEach(w => {
       const vdH = valDechet.history?.find(h => h.date === w)?.value || 0;
       const vpH = valProd.history?.find(h => h.date === w)?.value || 0;
       const valH = vpH > 0 ? (vdH / vpH) * 100 : 0;

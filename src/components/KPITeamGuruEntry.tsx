@@ -7,7 +7,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Save,
   RotateCcw,
-  Sparkles,
   Search,
   CheckCircle2,
   User as UserIcon,
@@ -532,62 +531,6 @@ export default function KPITeamGuruEntry({
     }
   };
 
-  // Autofill the current week with realistic mock values near targets (demonstration helper)
-  const handleAutofillMock = () => {
-    const filled: Record<string, Partial<KPI>> = {};
-    const weekLabel = `Semaine ${CURRENT_WEEK}`;
-
-    kpis.forEach(kpi => {
-      const isPresence = kpi.name.toLowerCase().includes('présence');
-      const isAccident = kpi.name.toLowerCase().includes('accident');
-      const isRetard = kpi.name.toLowerCase().includes('retard') || kpi.name.toLowerCase().includes('actions');
-      const isTRS = kpi.name.toLowerCase().includes('trs');
-
-      let val = kpi.target;
-      if (isPresence) {
-        val = Number((90 + Math.random() * 10).toFixed(1));
-      } else if (isAccident) {
-        val = Math.random() > 0.85 ? 1 : 0;
-      } else if (isRetard) {
-        val = Math.floor(Math.random() * 3);
-      } else if (isTRS) {
-        val = Number((72 + Math.random() * 14).toFixed(1));
-      } else {
-        const delta = (Math.random() - 0.3) * (kpi.target * 0.1);
-        val = Number((kpi.target + delta).toFixed(1));
-      }
-
-      const edits: Partial<KPI> = {};
-      if (kpi.site1Checked && kpi.site2Checked) {
-        const s1 = Number((val * 0.4).toFixed(1));
-        const s2 = Number((val * 0.6).toFixed(1));
-        edits.site1Value = s1;
-        edits.site2Value = s2;
-        edits.weeklyValue = Number((s1 + s2).toFixed(1));
-        edits.site1History = [{ date: weekLabel, value: s1 }];
-        edits.site2History = [{ date: weekLabel, value: s2 }];
-      } else {
-        edits.weeklyValue = val;
-      }
-
-      const simulatedHistory = kpi.history.map(hist => {
-        let historyVal = hist.value;
-        if (hist.date === weekLabel) {
-          historyVal = edits.weeklyValue!;
-        } else {
-          historyVal = Number((hist.value + (Math.random() - 0.5) * (hist.value * 0.05)).toFixed(1));
-        }
-        return { ...hist, value: historyVal };
-      });
-      edits.history = simulatedHistory;
-      edits.status = evaluateStatus(edits.weeklyValue!, kpi.target, kpi.name, kpi.category);
-
-      filled[kpi.id] = edits;
-    });
-
-    setLocalEdits(filled);
-  };
-
   // Filtered KPIs list
   const filteredKPIs = kpis.filter(kpi => {
     const matchesSearch = kpi.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -839,15 +782,6 @@ export default function KPITeamGuruEntry({
 
         {/* Bulk tools */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleAutofillMock}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40 rounded-lg text-xs font-semibold transition-all"
-            title="Simuler des valeurs pour la semaine courante"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Simuler Saisie</span>
-          </button>
-
           {modifiedCount > 0 && (
             <>
               <button

@@ -23,8 +23,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
-  Legend
+  Tooltip
 } from 'recharts';
 import { KPI, Action, User } from '../types';
 import { CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
@@ -73,18 +72,6 @@ export default function ModuleDetail({
   const [rangeStart, setRangeStart] = React.useState<number>(Math.max(1, CURRENT_WEEK - 4));
   const [rangeEnd, setRangeEnd] = React.useState<number>(CURRENT_WEEK);
 
-  // The weeks that actually have at least one real value in this module, so the chart never
-  // spans all 52 weeks of empty cells just because week 52 exists.
-  const weeksWithData = React.useMemo(() => {
-    const set = new Set<number>();
-    currentModuleKpis.forEach(k => {
-      ALL_WEEKS.forEach(w => {
-        if (getWeeklyRowValue(k, 'total', w) !== null) set.add(w);
-      });
-    });
-    return Array.from(set).sort((a, b) => a - b);
-  }, [currentModuleKpis]);
-
   // Card value for the selected period: the week's value, the month's aggregate, or the
   // average across the chosen week range.
   const getCardValue = (k: KPI): number | null => {
@@ -98,33 +85,35 @@ export default function ModuleDetail({
     return vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
   };
 
-  // Trend chart series: monthly aggregates (12 points) in "Mois" mode, weekly values in "Semaine"
-  // mode (all weeks with data) or "Semaine à Semaine" mode (only the chosen range).
-  const trendChartData = React.useMemo(() => {
-    if (periodMode === 'month') {
-      return MONTH_WEEK_RANGES.map((m, idx) => {
-        const point: Record<string, string | number> = { date: m.name };
-        currentModuleKpis.forEach(k => {
-          const v = getMonthlyRowValue(k, 'total', idx);
-          if (v !== null) point[k.name] = v;
-        });
-        return point;
-      });
+  // Per-KPI chart x-axis, driven by the period selector: "Semaine" shows every week of the
+  // month the selected week falls in, "Mois" shows the whole year, "Semaine à Semaine" shows
+  // just the chosen range.
+  const chartWeeks: number[] = React.useMemo(() => {
+    if (periodMode === 'week') {
+      const idx = getMonthIndexForWeek(selectedWeek);
+      return idx !== -1 ? MONTH_WEEK_RANGES[idx].weeks : [selectedWeek];
     }
+    if (periodMode === 'range') {
+      const lo = Math.min(rangeStart, rangeEnd), hi = Math.max(rangeStart, rangeEnd);
+      return ALL_WEEKS.filter(w => w >= lo && w <= hi);
+    }
+    return [];
+  }, [periodMode, selectedWeek, rangeStart, rangeEnd]);
 
-    const lo = periodMode === 'range' ? Math.min(rangeStart, rangeEnd) : 1;
-    const hi = periodMode === 'range' ? Math.max(rangeStart, rangeEnd) : 52;
-    return weeksWithData
-      .filter(w => w >= lo && w <= hi)
-      .map(w => {
-        const point: Record<string, string | number> = { date: `Semaine ${w}` };
-        currentModuleKpis.forEach(k => {
-          const v = getWeeklyRowValue(k, 'total', w);
-          if (v !== null) point[k.name] = v;
-        });
-        return point;
-      });
-  }, [currentModuleKpis, periodMode, rangeStart, rangeEnd, weeksWithData]);
+  // One series per KPI: monthly points across the full year in "Mois" mode, weekly points over
+  // `chartWeeks` otherwise.
+  const getKpiSeries = (k: KPI): { label: string; value: number | null }[] => {
+    if (periodMode === 'month') {
+      return MONTH_WEEK_RANGES.map((m, idx) => ({ label: m.name, value: getMonthlyRowValue(k, 'total', idx) }));
+    }
+    return chartWeeks.map(w => ({ label: `S${w}`, value: getWeeklyRowValue(k, 'total', w) }));
+  };
+
+  const chartPeriodLabel = periodMode === 'month'
+    ? 'Année complète'
+    : periodMode === 'range'
+      ? `Semaine ${Math.min(rangeStart, rangeEnd)} à ${Math.max(rangeStart, rangeEnd)}`
+      : `${MONTH_WEEK_RANGES[getMonthIndexForWeek(selectedWeek)]?.name ?? ''} — semaines du mois`;
 
   const TREND_COLORS = ['#3b82f6', '#f43f5e', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899'];
 
@@ -287,78 +276,78 @@ export default function ModuleDetail({
       </div>
 
       {/* 4. MODULAR CHART COMPONENT WRAPPERS */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-        {/* CHART PORTLET — real weekly history from the KPIs entered in Saisie KPIs for this
-            module, one line per KPI. No fabricated or mislabeled data: what's plotted is exactly
-            what was saisi, named after the actual KPI it comes from. */}
-        <div className="bento-card p-5 lg:col-span-7 flex flex-col h-[350px]">
-          <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 font-mono">
-            Tendance {periodMode === 'month' ? 'Mensuelle' : 'Hebdomadaire'} — {selectedModuleId}
+      {currentModuleKpis.length > 0 && (
+        <div>
+          <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3 font-mono">
+            Tendance par Indicateur — {chartPeriodLabel}
           </h3>
-          <div className="flex-1 min-h-0 text-xs">
-            {trendChartData.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 italic text-center px-6">
-                Aucune donnée saisie pour les indicateurs du module [{selectedModuleId}]{periodMode === 'range' ? ` entre les semaines ${Math.min(rangeStart, rangeEnd)} et ${Math.max(rangeStart, rangeEnd)}` : ''}.
-                <br />Renseignez-les dans l'onglet Saisie KPIs pour voir apparaître la tendance ici.
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendChartData}>
-                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
-                  <YAxis stroke="#94a3b8" fontSize={10} />
-                  <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" />
-                  <Tooltip />
-                  <Legend />
-                  {currentModuleKpis.map((k, i) => (
-                    <Line
-                      key={k.id}
-                      name={k.name}
-                      dataKey={k.name}
-                      stroke={TREND_COLORS[i % TREND_COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                      connectNulls
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* COMPLEMENTARY WIDGET (5 cols): open corrective actions for this module — real data,
-            same widget for every module (no fabricated stock photos or fictional operator
-            competence matrix). */}
-        <div className="bento-card p-5 lg:col-span-5 flex flex-col h-[350px]">
-          <div className="flex flex-col h-full space-y-3 text-xs">
-            <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-widest">
-              Actions associées ouvertes ({currentModuleActions.filter(a => a.status !== 'Clôturé').length})
-            </h3>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {currentModuleActions.filter(a => a.status !== 'Clôturé').length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-400 italic">
-                  Aucune action en cours pour la thématique [{selectedModuleId}].
-                </div>
-              ) : (
-                currentModuleActions.filter(a => a.status !== 'Clôturé').map(act => (
-                  <div key={act.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-100 dark:border-slate-800 flex justify-between items-center hover:bg-slate-100/50">
-                    <div className="min-w-0 flex-1 pr-3">
-                      <span className="font-mono text-[9px] font-bold text-blue-600 dark:text-blue-400">{act.autoNum}</span>
-                      <p className="font-semibold text-slate-800 dark:text-slate-200 truncate mt-0.5">{act.subject}</p>
-                      <p className="text-[10px] text-slate-400">Responsable : <strong>{act.owner}</strong></p>
-                    </div>
-                    <span className="text-[10px] font-bold font-mono bg-white dark:bg-slate-900 border px-1.5 py-0.5 rounded shrink-0 shadow-xs">
-                      {act.completionPercentage}%
-                    </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {currentModuleKpis.map((k, i) => {
+              const series = getKpiSeries(k);
+              const hasData = series.some(p => p.value !== null);
+              return (
+                <div key={k.id} className="bento-card p-4 flex flex-col h-[240px]">
+                  <h4 className="text-xs font-display font-bold text-slate-800 dark:text-slate-100 truncate mb-2" title={k.name}>
+                    {k.name}
+                  </h4>
+                  <div className="flex-1 min-h-0 text-xs">
+                    {hasData ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={series}>
+                          <XAxis dataKey="label" stroke="#94a3b8" fontSize={9} />
+                          <YAxis stroke="#94a3b8" fontSize={9} />
+                          <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" />
+                          <Tooltip />
+                          <Line
+                            name={k.name}
+                            dataKey="value"
+                            stroke={TREND_COLORS[i % TREND_COLORS.length]}
+                            strokeWidth={2}
+                            dot={{ r: 3 }}
+                            connectNulls
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-slate-400 italic text-center px-3">
+                        Aucune donnée saisie sur cette période.
+                      </div>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
+                </div>
+              );
+            })}
           </div>
         </div>
+      )}
 
+      {/* Open corrective actions for this module — real data, same widget for every module (no
+          fabricated stock photos or fictional operator competence matrix). */}
+      <div className="bento-card p-5 flex flex-col max-h-[350px]">
+        <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-widest mb-3">
+          Actions associées ouvertes ({currentModuleActions.filter(a => a.status !== 'Clôturé').length})
+        </h3>
+
+        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+          {currentModuleActions.filter(a => a.status !== 'Clôturé').length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 italic py-6">
+              Aucune action en cours pour la thématique [{selectedModuleId}].
+            </div>
+          ) : (
+            currentModuleActions.filter(a => a.status !== 'Clôturé').map(act => (
+              <div key={act.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-100 dark:border-slate-800 flex justify-between items-center hover:bg-slate-100/50">
+                <div className="min-w-0 flex-1 pr-3">
+                  <span className="font-mono text-[9px] font-bold text-blue-600 dark:text-blue-400">{act.autoNum}</span>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 truncate mt-0.5">{act.subject}</p>
+                  <p className="text-[10px] text-slate-400">Responsable : <strong>{act.owner}</strong></p>
+                </div>
+                <span className="text-[10px] font-bold font-mono bg-white dark:bg-slate-900 border px-1.5 py-0.5 rounded shrink-0 shadow-xs">
+                  {act.completionPercentage}%
+                </span>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
     </div>

@@ -77,11 +77,11 @@ export const INITIAL_KPIS: KPI[] = [
     category: 'Sécurité',
     name: 'Suivi de Gemba HSE',
     unit: '%',
-    dailyValue: 96,
-    weeklyValue: 96,
+    dailyValue: 0,
+    weeklyValue: 0,
     target: 100,
-    trend: 'up',
-    status: 'Green',
+    trend: 'stable',
+    status: 'Red',
     description: 'Taux de réalisation et conformité des audits HSE terrain (Gemba Walks).',
     greenThreshold: '>= 95',
     owner: 'DGA',
@@ -89,12 +89,7 @@ export const INITIAL_KPIS: KPI[] = [
     site2Checked: false,
     totalChecked: true,
     officeplastOwner: 'Anis Zouaoui',
-    history: [
-      { date: 'Semaine 23', value: 90 },
-      { date: 'Semaine 24', value: 92 },
-      { date: 'Semaine 25', value: 95 },
-      { date: 'Semaine 26', value: 96 }
-    ]
+    history: []
   },
   {
     id: 'kpi-sec-retard',

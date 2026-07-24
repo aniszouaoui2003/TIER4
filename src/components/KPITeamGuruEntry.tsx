@@ -54,7 +54,8 @@ const FORMULA_KPI_IDS = [
   'kpi-cost-ratio',
   'kpi-cost-valeur-produite',
   'kpi-cost-taux-dechet',
-  'kpi-rh-presence'
+  'kpi-rh-presence',
+  'kpi-sec-gemba'
 ];
 
 export default function KPITeamGuruEntry({

@@ -217,9 +217,13 @@ export default function KPITeamGuruEntry({
 
   // Resolves the value shown on a given grid row (total / site1 / site2) for a specific week.
   // The "total" row of a site-tracked KPI is never read from `history` directly — it's always
-  // the live sum of its site rows, so the two can never silently drift apart.
+  // the live sum of its site rows, so the two can never silently drift apart. That sum-of-sites
+  // rule only holds for count/quantity KPIs, though: a formula KPI whose value is itself a
+  // percentage (conformité, productivité, % recette, % déchet) has its own separately computed
+  // Total blended from the underlying totals server-side — summing two percentages together
+  // (e.g. 92% + 91%) would be meaningless, so those read `history` directly like a non-tracked KPI.
   const getRowWeekValue = (k: KPI, rowType: RowType, week: number): number | null => {
-    const siteTracked = !!(k.site1Checked || k.site2Checked);
+    const siteTracked = !!(k.site1Checked || k.site2Checked) && !FORMULA_KPI_IDS.includes(k.id);
     if (rowType === 'total' && siteTracked) {
       const has1 = k.site1Checked && hasWeekData(k.id, week, 'site1History');
       const has2 = k.site2Checked && hasWeekData(k.id, week, 'site2History');
@@ -274,10 +278,12 @@ export default function KPITeamGuruEntry({
 
   // The value actually shown on a row's monthly cell: a manual override when one exists,
   // otherwise the computed weekly rollup. The Total row of a site-tracked KPI is always the live
-  // sum of its sites' effective monthly values (so it inherits overrides from Site 1 / Site 2).
+  // sum of its sites' effective monthly values (so it inherits overrides from Site 1 / Site 2) —
+  // except for formula KPIs whose value is itself a percentage, where summing sites would be
+  // meaningless; see getRowWeekValue.
   const getEffectiveMonthValue = (k: KPI, rowType: RowType, monthIndex: number): { value: number | null; isOverride: boolean } => {
     const m = MONTH_WEEK_RANGES[monthIndex];
-    const siteTracked = !!(k.site1Checked || k.site2Checked);
+    const siteTracked = !!(k.site1Checked || k.site2Checked) && !FORMULA_KPI_IDS.includes(k.id);
 
     if (rowType === 'total' && siteTracked) {
       const r1 = k.site1Checked ? getEffectiveMonthValue(k, 'site1', monthIndex) : null;

@@ -109,6 +109,69 @@ function recordedWeeks(...kpis: (typeof INITIAL_KPIS[number] | undefined)[]): st
   return Array.from(weeks);
 }
 
+type KpiRecord = typeof INITIAL_KPIS[number];
+type HistoryEntry = { date: string; value: number };
+
+// Extends a ratio-based formula (numerator/denominator*100, already computed for the Total row)
+// to Site 1 / Site 2, using each input's own site1Value/site1History (or site2 equivalents).
+// Skipped per-site when either input isn't tracked for that site, or neither has any recorded
+// data there — the Total-row computation above already guards the KPI as a whole, but a site can
+// independently have nothing yet (e.g. Site 2 not entered this week while Site 1 has).
+function recomputeFormulaSiteRatio(
+  target: KpiRecord,
+  numerator: KpiRecord | undefined,
+  denominator: KpiRecord | undefined,
+  site: 'site1' | 'site2',
+  whenEmptyDenominator: number,
+  decimals: number
+) {
+  if (!numerator || !denominator) return;
+  const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
+  if (!numerator[checkedField] || !denominator[checkedField]) return;
+
+  const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
+  const historyField = site === 'site1' ? 'site1History' : 'site2History';
+  const numHist = (numerator as any)[historyField] as HistoryEntry[] | undefined;
+  const denHist = (denominator as any)[historyField] as HistoryEntry[] | undefined;
+
+  const hasData = ((numerator as any)[valueField] || 0) !== 0 || (numHist && numHist.length > 0) ||
+                   ((denominator as any)[valueField] || 0) !== 0 || (denHist && denHist.length > 0);
+  if (!hasData) return;
+
+  const numW = (numerator as any)[valueField] || 0;
+  const denW = (denominator as any)[valueField] || 0;
+  (target as any)[valueField] = denW > 0 ? Number(((numW / denW) * 100).toFixed(decimals)) : whenEmptyDenominator;
+
+  if (!(target as any)[historyField]) (target as any)[historyField] = [];
+  const targetHist = (target as any)[historyField] as HistoryEntry[];
+
+  const weeks = new Set<string>();
+  numHist?.forEach(h => weeks.add(h.date));
+  denHist?.forEach(h => weeks.add(h.date));
+  weeks.forEach(w => {
+    const nH = numHist?.find(h => h.date === w)?.value || 0;
+    const dH = denHist?.find(h => h.date === w)?.value || 0;
+    const vH = dH > 0 ? Number(((nH / dH) * 100).toFixed(decimals)) : whenEmptyDenominator;
+    const idx = targetHist.findIndex(h => h.date === w);
+    if (idx !== -1) targetHist[idx].value = vH; else targetHist.push({ date: w, value: vH });
+  });
+}
+
+// Site 1 / Site 2 counterpart of a formula KPI that's a direct copy of another KPI (e.g.
+// "valeur produite" = RF), rather than a ratio.
+function copyFormulaSite(target: KpiRecord, source: KpiRecord | undefined, site: 'site1' | 'site2') {
+  if (!source) return;
+  const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
+  if (!source[checkedField]) return;
+  const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
+  const historyField = site === 'site1' ? 'site1History' : 'site2History';
+  const srcHist = (source as any)[historyField] as HistoryEntry[] | undefined;
+  const hasData = ((source as any)[valueField] || 0) !== 0 || (srcHist && srcHist.length > 0);
+  if (!hasData) return;
+  (target as any)[valueField] = (source as any)[valueField] || 0;
+  (target as any)[historyField] = srcHist ? srcHist.map(h => ({ ...h })) : [];
+}
+
 function recalculateAllFormulas(db: DataStoreSchema) {
   if (!db.kpis) return;
 
@@ -143,6 +206,44 @@ function recalculateAllFormulas(db: DataStoreSchema) {
       const valH = pcH > 0 ? ((pcH - (nc1H * 2 + nc2H)) / pcH) * 100 : 100;
       updateKPIHistory(conf, w, Number(Math.max(0, Math.min(100, valH)).toFixed(1)));
     });
+
+    // Site 1 / Site 2 — same formula, scoped to each site's own PC/NC1/NC2 (not a simple ratio,
+    // so computed inline rather than via recomputeFormulaSiteRatio).
+    (['site1', 'site2'] as const).forEach(site => {
+      const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
+      if (!pc?.[checkedField] || !nc1?.[checkedField] || !nc2?.[checkedField]) return;
+      const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
+      const historyField = site === 'site1' ? 'site1History' : 'site2History';
+      const pcHist = (pc as any)[historyField] as HistoryEntry[] | undefined;
+      const nc1Hist = (nc1 as any)[historyField] as HistoryEntry[] | undefined;
+      const nc2Hist = (nc2 as any)[historyField] as HistoryEntry[] | undefined;
+      const hasData = ((pc as any)[valueField] || 0) !== 0 || (pcHist && pcHist.length > 0) ||
+                       ((nc1 as any)[valueField] || 0) !== 0 || (nc1Hist && nc1Hist.length > 0) ||
+                       ((nc2 as any)[valueField] || 0) !== 0 || (nc2Hist && nc2Hist.length > 0);
+      if (!hasData) return;
+
+      const pcS = (pc as any)[valueField] || 0;
+      const nc1S = (nc1 as any)[valueField] || 0;
+      const nc2S = (nc2 as any)[valueField] || 0;
+      const valS = pcS > 0 ? ((pcS - (nc1S * 2 + nc2S)) / pcS) * 100 : 100;
+      (conf as any)[valueField] = Number(Math.max(0, Math.min(100, valS)).toFixed(1));
+
+      if (!(conf as any)[historyField]) (conf as any)[historyField] = [];
+      const confHist = (conf as any)[historyField] as HistoryEntry[];
+      const weeks = new Set<string>();
+      pcHist?.forEach(h => weeks.add(h.date));
+      nc1Hist?.forEach(h => weeks.add(h.date));
+      nc2Hist?.forEach(h => weeks.add(h.date));
+      weeks.forEach(w => {
+        const pcH = pcHist?.find(h => h.date === w)?.value || 0;
+        const nc1H = nc1Hist?.find(h => h.date === w)?.value || 0;
+        const nc2H = nc2Hist?.find(h => h.date === w)?.value || 0;
+        const valH = pcH > 0 ? ((pcH - (nc1H * 2 + nc2H)) / pcH) * 100 : 100;
+        const clamped = Number(Math.max(0, Math.min(100, valH)).toFixed(1));
+        const idx = confHist.findIndex(h => h.date === w);
+        if (idx !== -1) confHist[idx].value = clamped; else confHist.push({ date: w, value: clamped });
+      });
+    });
   }
 
   // 2. Recalculate % de productivité = (QF / QP) * 100
@@ -168,6 +269,9 @@ function recalculateAllFormulas(db: DataStoreSchema) {
       const valH = qpH > 0 ? (qfH / qpH) * 100 : 100;
       updateKPIHistory(prod, w, Number(valH.toFixed(1)));
     });
+
+    recomputeFormulaSiteRatio(prod, qf, qp, 'site1', 100, 1);
+    recomputeFormulaSiteRatio(prod, qf, qp, 'site2', 100, 1);
   }
 
   // 3. Recalculate % recette = RF/RP
@@ -193,6 +297,9 @@ function recalculateAllFormulas(db: DataStoreSchema) {
       const valH = rpH > 0 ? (rfH / rpH) * 100 : 100;
       updateKPIHistory(ratio, w, Number(valH.toFixed(1)));
     });
+
+    recomputeFormulaSiteRatio(ratio, rf, rp, 'site1', 100, 1);
+    recomputeFormulaSiteRatio(ratio, rf, rp, 'site2', 100, 1);
   }
 
   // 4. Recalculate "valeur produite" = rf (recette fabrique)
@@ -208,6 +315,9 @@ function recalculateAllFormulas(db: DataStoreSchema) {
       const rfH = rf.history?.find(h => h.date === w)?.value || 0;
       updateKPIHistory(valProd, w, rfH);
     });
+
+    copyFormulaSite(valProd, rf, 'site1');
+    copyFormulaSite(valProd, rf, 'site2');
   }
 
   // 5. Recalculate % déchet = Valeur déchet/Valeur produite
@@ -232,6 +342,9 @@ function recalculateAllFormulas(db: DataStoreSchema) {
       const valH = vpH > 0 ? (vdH / vpH) * 100 : 0;
       updateKPIHistory(tauxDechet, w, Number(valH.toFixed(2)));
     });
+
+    recomputeFormulaSiteRatio(tauxDechet, valDechet, valProd, 'site1', 0, 2);
+    recomputeFormulaSiteRatio(tauxDechet, valDechet, valProd, 'site2', 0, 2);
   }
 }
 

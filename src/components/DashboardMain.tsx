@@ -17,7 +17,8 @@ import {
   AlertOctagon,
   Clock,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  CalendarRange
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -31,8 +32,8 @@ import {
 } from 'recharts';
 import { motion } from 'motion/react';
 import { KPI, Action, User } from '../types';
-import { CURRENT_WEEK } from '../utils/weekCalendar';
-import { getWeeklyRowValue, evaluateStatus } from '../utils/kpiExcelData';
+import { CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
+import { getWeeklyRowValue, getMonthlyRowValue, evaluateStatus, ALL_WEEKS, RowType } from '../utils/kpiExcelData';
 
 interface DashboardMainProps {
   kpis: KPI[];
@@ -66,6 +67,37 @@ export default function DashboardMain({
   const [aiError, setAiError] = useState<string | null>(null);
   const [selectedSite, setSelectedSite] = useState<'Total' | 'Site 1' | 'Site 2'>('Total');
 
+  // Period selector: a single week, a month (aggregated like the Saisie KPIs monthly rollup),
+  // or a custom week-to-week range — same semantics as Indicateurs Métiers, so the score, radar,
+  // heatmap and alerts below always agree with what the grid shows for that same period.
+  const [periodMode, setPeriodMode] = useState<'week' | 'month' | 'range'>('week');
+  const [selectedWeek, setSelectedWeek] = useState<number>(CURRENT_WEEK);
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number>(Math.max(0, getMonthIndexForWeek(CURRENT_WEEK)));
+  const [rangeStart, setRangeStart] = useState<number>(Math.max(1, CURRENT_WEEK - 4));
+  const [rangeEnd, setRangeEnd] = useState<number>(CURRENT_WEEK);
+
+  const rowType: RowType = selectedSite === 'Site 1' ? 'site1' : selectedSite === 'Site 2' ? 'site2' : 'total';
+
+  // Value for one KPI/row over the selected period: the week's value, the month's aggregate, or
+  // the average across the chosen week range — identical logic to Indicateurs Métiers' getCardValue.
+  const getPeriodValue = (k: KPI, rt: RowType): number | null => {
+    if (periodMode === 'week') return getWeeklyRowValue(k, rt, selectedWeek);
+    if (periodMode === 'month') return getMonthlyRowValue(k, rt, selectedMonthIndex);
+    const lo = Math.min(rangeStart, rangeEnd), hi = Math.max(rangeStart, rangeEnd);
+    const vals: number[] = [];
+    for (let w = lo; w <= hi; w++) {
+      const v = getWeeklyRowValue(k, rt, w);
+      if (v !== null) vals.push(v);
+    }
+    return vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
+  };
+
+  const periodLabel = periodMode === 'week'
+    ? `Semaine ${selectedWeek}`
+    : periodMode === 'month'
+      ? MONTH_WEEK_RANGES[selectedMonthIndex].name
+      : `Semaine ${Math.min(rangeStart, rangeEnd)} à Semaine ${Math.max(rangeStart, rangeEnd)}`;
+
   // Load AI Analysis on mount, and again whenever the site filter changes — otherwise the
   // consultant panel keeps commenting on the whole plant while the rest of the page is scoped
   // to a single site.
@@ -97,38 +129,19 @@ export default function DashboardMain({
     }
   };
 
-  // Derive displayed KPIs according to site selection
+  // Derive displayed KPIs for the selected site AND the selected period — a KPI with nothing
+  // recorded for that period is treated the same as "not applicable" (excluded from the score,
+  // shown as N/A) rather than defaulting to 0, same philosophy as Indicateurs Métiers.
   const displayedKpis = kpis.map(kpi => {
-    let weeklyValue = kpi.weeklyValue;
-    let isApplicable = true;
-
-    if (selectedSite === 'Site 1') {
-      isApplicable = kpi.site1Checked;
-      weeklyValue = isApplicable ? (kpi.site1Value ?? kpi.weeklyValue) : 0;
-    } else if (selectedSite === 'Site 2') {
-      isApplicable = kpi.site2Checked;
-      weeklyValue = isApplicable ? (kpi.site2Value ?? kpi.weeklyValue) : 0;
-    }
-
-    // Determine status dynamically for Site 1 / Site 2 if applicable
-    let status = kpi.status;
-    if (!isApplicable) {
-      status = 'Green'; // Non-applicable doesn't count as penalty
-    } else if (selectedSite !== 'Total') {
-      const isOver = weeklyValue >= kpi.target;
-      if (kpi.greenThreshold.includes('== 0')) {
-        status = weeklyValue === 0 ? 'Green' : (weeklyValue > 2 ? 'Red' : 'Orange');
-      } else if (kpi.greenThreshold.includes('<=')) {
-        status = weeklyValue <= kpi.target ? 'Green' : (weeklyValue <= kpi.target * 1.1 ? 'Orange' : 'Red');
-      } else {
-        status = isOver ? 'Green' : (weeklyValue >= kpi.target * 0.9 ? 'Orange' : 'Red');
-      }
-    }
+    const isApplicable = selectedSite === 'Site 1' ? kpi.site1Checked : selectedSite === 'Site 2' ? kpi.site2Checked : true;
+    const periodValue = isApplicable ? getPeriodValue(kpi, rowType) : null;
+    const isNotApplicable = !isApplicable || periodValue === null;
+    const status = isNotApplicable ? 'Green' : evaluateStatus(periodValue as number, kpi.target, kpi.name, kpi.category);
 
     return {
       ...kpi,
-      weeklyValue,
-      isNotApplicable: !isApplicable,
+      weeklyValue: periodValue ?? 0,
+      isNotApplicable,
       status
     };
   });
@@ -139,29 +152,57 @@ export default function DashboardMain({
   const delayedActions = activeActions.filter(a => new Date(a.dueDate) < new Date());
   const criticalActions = activeActions.filter(a => a.priority === 'Critique' || a.priority === 'Haute');
 
-  // Overall Plant Performance score based on KPIs (percentage of Green KPIs)
+  // Overall Plant Performance score based on KPIs (percentage of Green KPIs) for the selected period
   const activeKpiCount = displayedKpis.filter(k => !k.isNotApplicable).length;
   const greenKpisCount = displayedKpis.filter(k => k.status === 'Green' && !k.isNotApplicable).length;
   const plantScore = activeKpiCount > 0 ? Math.round((greenKpisCount / activeKpiCount) * 100) : 100;
 
-  // Same methodology applied to last week's recorded values, for a real week-over-week trend
-  // on the headline score (a KPI with nothing recorded that week is excluded from both the
-  // numerator and denominator, same as "not applicable" above — it can't be judged either way).
-  const lastWeekScore = (() => {
-    const rowType = selectedSite === 'Site 1' ? 'site1' : selectedSite === 'Site 2' ? 'site2' : 'total';
+  // Same methodology applied to the period immediately preceding the selected one, for a real
+  // trend on the headline score (a KPI with nothing recorded that period is excluded from both
+  // the numerator and denominator, same as "not applicable" above — it can't be judged either way).
+  const computeScore = (getValue: (k: KPI) => number | null): number | null => {
     let active = 0;
     let green = 0;
     kpis.forEach(k => {
       const applicable = selectedSite === 'Site 1' ? k.site1Checked : selectedSite === 'Site 2' ? k.site2Checked : true;
       if (!applicable) return;
-      const val = getWeeklyRowValue(k, rowType, CURRENT_WEEK - 1);
+      const val = getValue(k);
       if (val === null) return;
       active++;
       if (evaluateStatus(val, k.target, k.name, k.category) === 'Green') green++;
     });
     return active > 0 ? Math.round((green / active) * 100) : null;
-  })();
-  const scoreDelta = lastWeekScore !== null ? plantScore - lastWeekScore : null;
+  };
+
+  let previousScore: number | null = null;
+  let previousLabel = '';
+  if (periodMode === 'week') {
+    if (selectedWeek > 1) {
+      previousScore = computeScore(k => getWeeklyRowValue(k, rowType, selectedWeek - 1));
+      previousLabel = `S${selectedWeek - 1}`;
+    }
+  } else if (periodMode === 'month') {
+    if (selectedMonthIndex > 0) {
+      previousScore = computeScore(k => getMonthlyRowValue(k, rowType, selectedMonthIndex - 1));
+      previousLabel = MONTH_WEEK_RANGES[selectedMonthIndex - 1].name;
+    }
+  } else {
+    const lo = Math.min(rangeStart, rangeEnd), hi = Math.max(rangeStart, rangeEnd);
+    const len = hi - lo + 1;
+    const prevLo = lo - len, prevHi = lo - 1;
+    if (prevLo >= 1) {
+      previousScore = computeScore(k => {
+        const vals: number[] = [];
+        for (let w = prevLo; w <= prevHi; w++) {
+          const v = getWeeklyRowValue(k, rowType, w);
+          if (v !== null) vals.push(v);
+        }
+        return vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
+      });
+      previousLabel = prevLo === prevHi ? `S${prevLo}` : `S${prevLo} à S${prevHi}`;
+    }
+  }
+  const scoreDelta = previousScore !== null ? plantScore - previousScore : null;
 
   // Group KPIs by category (selecting main KPI per category)
   const categories = [
@@ -196,9 +237,11 @@ export default function DashboardMain({
   const scopes = ['Site 1', 'Site 2', 'Total Usine'];
   const columns = categories.map(c => c.id);
 
+  const scopeRowType = (scope: string): RowType => scope === 'Site 1' ? 'site1' : scope === 'Site 2' ? 'site2' : 'total';
+
   const getHeatmapColor = (scope: string, column: string) => {
-    const catId = column;
-    const catKpis = kpis.filter(k => k.category === catId);
+    const catKpis = kpis.filter(k => k.category === column);
+    const rt = scopeRowType(scope);
 
     // Find all applicable KPIs for this scope and category
     const applicableKpis = catKpis.filter(k => {
@@ -213,28 +256,20 @@ export default function DashboardMain({
 
     let hasRed = false;
     let hasOrange = false;
+    let hasData = false;
 
     applicableKpis.forEach(k => {
-      let val = k.weeklyValue;
-      if (scope === 'Site 1') val = k.site1Value ?? 0;
-      else if (scope === 'Site 2') val = k.site2Value ?? 0;
-
-      let status = k.status;
-      if (scope !== 'Total Usine') {
-        const isOver = val >= k.target;
-        if (k.greenThreshold.includes('== 0')) {
-          status = val === 0 ? 'Green' : (val > 2 ? 'Red' : 'Orange');
-        } else if (k.greenThreshold.includes('<=')) {
-          status = val <= k.target ? 'Green' : (val <= k.target * 1.1 ? 'Orange' : 'Red');
-        } else {
-          status = isOver ? 'Green' : (val >= k.target * 0.9 ? 'Orange' : 'Red');
-        }
-      }
-
+      const val = getPeriodValue(k, rt);
+      if (val === null) return;
+      hasData = true;
+      const status = evaluateStatus(val, k.target, k.name, k.category);
       if (status === 'Red') hasRed = true;
       if (status === 'Orange') hasOrange = true;
     });
 
+    if (!hasData) {
+      return 'bg-slate-100 text-slate-400 dark:bg-slate-800/40 dark:text-slate-500'; // N/A for this period
+    }
     if (hasRed) {
       return 'bg-rose-500 text-white';
     }
@@ -302,11 +337,11 @@ export default function DashboardMain({
             Vue d'Ensemble Performance Usine
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Revue de direction Tier 4 • Données consolidées en temps réel
+            Revue de direction Tier 4 • Analyse sur {periodLabel}
           </p>
         </div>
-        
-        {/* Site Selector & Date Wrapper */}
+
+        {/* Site Selector, Period Selector & Date Wrapper */}
         <div className="flex flex-wrap items-center gap-3 self-start md:self-center">
           {/* Site Selector */}
           <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
@@ -323,6 +358,73 @@ export default function DashboardMain({
                 {site === 'Total' ? 'Total Officeplast' : site}
               </button>
             ))}
+          </div>
+
+          {/* Period Selector: single week, month, or a custom week-to-week range */}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60">
+              <CalendarRange className="w-3.5 h-3.5 text-slate-400 ml-1.5 shrink-0" />
+              {(['week', 'month', 'range'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setPeriodMode(mode)}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                    periodMode === mode ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                  }`}
+                >
+                  {mode === 'week' ? 'Semaine' : mode === 'month' ? 'Mois' : 'Semaine à Semaine'}
+                </button>
+              ))}
+            </div>
+
+            {periodMode === 'week' && (
+              <select
+                value={selectedWeek}
+                onChange={(e) => setSelectedWeek(Number(e.target.value))}
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                {ALL_WEEKS.map(w => (
+                  <option key={w} value={w}>Semaine {w}{w === CURRENT_WEEK ? ' (actuelle)' : ''}</option>
+                ))}
+              </select>
+            )}
+
+            {periodMode === 'month' && (
+              <select
+                value={selectedMonthIndex}
+                onChange={(e) => setSelectedMonthIndex(Number(e.target.value))}
+                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                {MONTH_WEEK_RANGES.map((m, idx) => (
+                  <option key={m.name} value={idx}>{m.name}</option>
+                ))}
+              </select>
+            )}
+
+            {periodMode === 'range' && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400">De</span>
+                <select
+                  value={rangeStart}
+                  onChange={(e) => setRangeStart(Number(e.target.value))}
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+                >
+                  {ALL_WEEKS.map(w => (
+                    <option key={w} value={w}>S{w}</option>
+                  ))}
+                </select>
+                <span className="text-slate-400">à</span>
+                <select
+                  value={rangeEnd}
+                  onChange={(e) => setRangeEnd(Number(e.target.value))}
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+                >
+                  {ALL_WEEKS.map(w => (
+                    <option key={w} value={w}>S{w}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <span className="text-xs font-semibold px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg flex items-center gap-1.5 shadow-xs">
@@ -347,13 +449,13 @@ export default function DashboardMain({
               scoreDelta === null ? 'text-slate-400' : scoreDelta > 0 ? 'text-emerald-600 dark:text-emerald-400' : scoreDelta < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'
             }`}>
               {scoreDelta === null ? (
-                <><Minus className="w-3 h-3" /> Pas de référence S{CURRENT_WEEK - 1}</>
+                <><Minus className="w-3 h-3" /> Pas de période antérieure disponible</>
               ) : scoreDelta > 0 ? (
-                <><ArrowUpRight className="w-3 h-3" /> +{scoreDelta} pts vs S{CURRENT_WEEK - 1}</>
+                <><ArrowUpRight className="w-3 h-3" /> +{scoreDelta} pts vs {previousLabel}</>
               ) : scoreDelta < 0 ? (
-                <><ArrowDownRight className="w-3 h-3" /> {scoreDelta} pts vs S{CURRENT_WEEK - 1}</>
+                <><ArrowDownRight className="w-3 h-3" /> {scoreDelta} pts vs {previousLabel}</>
               ) : (
-                <><Minus className="w-3 h-3" /> Stable vs S{CURRENT_WEEK - 1}</>
+                <><Minus className="w-3 h-3" /> Stable vs {previousLabel}</>
               )}
             </p>
             <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
@@ -499,8 +601,9 @@ export default function DashboardMain({
 
       {/* 3. CORE 8 MODULES CARDS GRID */}
       <div>
-        <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 font-mono">
-          Indicateurs Clés par Thématiques (Pilotes Tier 4)
+        <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4 font-mono flex items-center gap-2">
+          <span>Indicateurs Clés par Thématiques (Pilotes Tier 4)</span>
+          <span className="normal-case font-medium text-slate-400 dark:text-slate-500">— {periodLabel}</span>
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5">

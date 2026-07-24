@@ -387,6 +387,44 @@ app.put('/api/kpis/:id', async (req, res) => {
   }
 });
 
+// Bulk update — applies every KPI's edits within a single read-modify-write cycle. The
+// Saisie KPIs grid used to fire one PUT /api/kpis/:id per modified row via Promise.all; those
+// requests each read the DB independently and raced each other's writes, silently dropping
+// all but the last one to finish (e.g. saving 20+ modified KPIs at once could lose everything
+// except one). Route all bulk saves through here instead of parallel single-KPI PUTs.
+app.put('/api/kpis', async (req, res) => {
+  const db = await readDB();
+  const { updates, modifiedBy, modifiedByRole } = req.body as {
+    updates?: Record<string, Record<string, unknown>>;
+    modifiedBy?: string;
+    modifiedByRole?: string;
+  };
+
+  if (!updates || typeof updates !== 'object') {
+    return res.status(400).json({ error: 'updates object is required.' });
+  }
+
+  const updatedNames: string[] = [];
+  for (const [id, fields] of Object.entries(updates)) {
+    const index = db.kpis.findIndex(k => k.id === id);
+    if (index !== -1) {
+      db.kpis[index] = { ...db.kpis[index], ...fields, modifiedBy, modifiedByRole } as typeof db.kpis[number];
+      updatedNames.push(db.kpis[index].name);
+    }
+  }
+
+  await writeDB(db);
+  await addAuditLog(
+    modifiedBy || 'Jean-Pierre Dubois',
+    modifiedByRole || 'DG',
+    'Modification groupée',
+    'KPIs',
+    `Mise à jour groupée de ${updatedNames.length} KPI(s) : ${updatedNames.join(', ')}`
+  );
+
+  res.json({ success: true, updated: updatedNames.length, kpis: db.kpis });
+});
+
 // Create new KPI (Admin UI capability)
 app.post('/api/kpis', async (req, res) => {
   const db = await readDB();

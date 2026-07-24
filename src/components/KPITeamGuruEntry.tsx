@@ -27,7 +27,7 @@ import { CURRENT_YEAR, CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } f
 
 interface KPITeamGuruEntryProps {
   kpis: KPI[];
-  onUpdateKPI: (id: string, updated: Partial<KPI>) => Promise<void>;
+  onBulkUpdateKPIs: (updates: Record<string, Partial<KPI>>) => Promise<void>;
   currentUser: User;
 }
 
@@ -59,7 +59,7 @@ const FORMULA_KPI_IDS = [
 
 export default function KPITeamGuruEntry({
   kpis,
-  onUpdateKPI,
+  onBulkUpdateKPIs,
   currentUser
 }: KPITeamGuruEntryProps) {
   // Filters & Search
@@ -505,9 +505,7 @@ export default function KPITeamGuruEntry({
 
     setSaving(true);
     try {
-      await Promise.all(
-        modifiedIds.map(id => onUpdateKPI(id, localEdits[id]))
-      );
+      await onBulkUpdateKPIs(localEdits);
 
       setSuccessMessage(`Félicitations ! Les données de ${modifiedIds.length} indicateur(s) ont été enregistrées avec succès.`);
       setLocalEdits({});

@@ -262,6 +262,24 @@ export default function App() {
     }
   };
 
+  // 7a. BULK UPDATE KPIs — applies every edit in a single request/DB write cycle. Firing one
+  // PUT per KPI in parallel (as the Saisie KPIs grid used to) let concurrent requests race each
+  // other's read-modify-write and silently drop all but the last one to finish.
+  const handleBulkUpdateKPIs = async (updates: Record<string, Partial<KPI>>) => {
+    if (!currentUser) return;
+    const response = await fetch('/api/kpis', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        updates,
+        modifiedBy: currentUser.name,
+        modifiedByRole: currentUser.role
+      })
+    });
+    if (!response.ok) throw new Error('Échec de la sauvegarde groupée des KPIs');
+    await refreshKpisAndLogs();
+  };
+
   // 7b. DELETE KPI
   const handleDeleteKPI = async (id: string) => {
     if (!currentUser) return;
@@ -437,7 +455,7 @@ export default function App() {
           {activeTab === 'kpi-entry' && (
             <KPITeamGuruEntry
               kpis={kpis}
-              onUpdateKPI={handleUpdateKPI}
+              onBulkUpdateKPIs={handleBulkUpdateKPIs}
               currentUser={currentUser}
             />
           )}

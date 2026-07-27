@@ -22,10 +22,12 @@ import {
   HelpCircle,
   ArrowRight
 } from 'lucide-react';
-import { Action, User, UserRole, ActionComment } from '../types';
+import { Action, KPI, User, UserRole, ActionComment } from '../types';
 
 interface ActionPlanProps {
   actions: Action[];
+  kpis: KPI[];
+  users: User[];
   onAddAction: (action: Omit<Action, 'id' | 'autoNum' | 'date' | 'comments' | 'attachments'>) => Promise<void>;
   onUpdateAction: (id: string, updated: Partial<Action>) => Promise<void>;
   onDeleteAction: (id: string) => Promise<void>;
@@ -35,6 +37,8 @@ interface ActionPlanProps {
 
 export default function ActionPlan({
   actions,
+  kpis,
+  users,
   onAddAction,
   onUpdateAction,
   onDeleteAction,
@@ -61,6 +65,7 @@ export default function ActionPlan({
   const [newRootCause, setNewRootCause] = useState('');
   const [newActionTaken, setNewActionTaken] = useState('');
   const [newOwner, setNewOwner] = useState('');
+  const [newKpiId, setNewKpiId] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
   const [newPriority, setNewPriority] = useState<'Basse' | 'Moyenne' | 'Haute' | 'Critique'>('Moyenne');
   const [newStatus, setNewStatus] = useState<'A faire' | 'En cours' | 'A valider' | 'Clôturé'>('A faire');
@@ -87,6 +92,7 @@ export default function ActionPlan({
       rootCause: newRootCause,
       actionTaken: newActionTaken,
       owner: newOwner,
+      kpiId: newKpiId || undefined,
       dueDate: newDueDate,
       priority: newPriority,
       status: newStatus,
@@ -99,6 +105,7 @@ export default function ActionPlan({
     setNewRootCause('');
     setNewActionTaken('');
     setNewOwner('');
+    setNewKpiId('');
     setNewDueDate('');
     setNewPriority('Moyenne');
     setNewStatus('A faire');
@@ -358,6 +365,14 @@ export default function ActionPlan({
                       <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5" title={action.description}>
                         {action.description}
                       </p>
+                      {action.kpiId && (() => {
+                        const linkedKpi = kpis.find(k => k.id === action.kpiId);
+                        return linkedKpi ? (
+                          <span className="inline-flex items-center gap-1 text-[9px] bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded mt-1 font-semibold truncate max-w-full" title={linkedKpi.name}>
+                            <Layers className="w-2.5 h-2.5 shrink-0" /> {linkedKpi.name}
+                          </span>
+                        ) : null;
+                      })()}
                     </td>
 
                     {/* Owner */}
@@ -506,14 +521,17 @@ export default function ActionPlan({
                 {/* Owner */}
                 <div className="col-span-2">
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Responsable *</label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    placeholder="Nom du pilote"
                     value={newOwner}
                     onChange={(e) => setNewOwner(e.target.value)}
                     className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
-                  />
+                  >
+                    <option value="">Sélectionner un responsable...</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Due Date */}
@@ -527,6 +545,29 @@ export default function ActionPlan({
                     className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2 text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
                   />
                 </div>
+              </div>
+
+              {/* KPI associé (optionnel) */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">KPI associé (optionnel)</label>
+                <select
+                  value={newKpiId}
+                  onChange={(e) => setNewKpiId(e.target.value)}
+                  className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
+                >
+                  <option value="">Aucun KPI associé</option>
+                  {depts.map(cat => {
+                    const catKpis = kpis.filter(k => k.category === cat);
+                    if (catKpis.length === 0) return null;
+                    return (
+                      <optgroup key={cat} label={cat}>
+                        {catKpis.map(k => (
+                          <option key={k.id} value={k.id}>{k.name}</option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -617,6 +658,10 @@ export default function ActionPlan({
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-1">
                     Périmètre : <strong>{selectedAction.workshop}</strong> • Thématique : <strong>{selectedAction.department}</strong>
+                    {selectedAction.kpiId && (() => {
+                      const linkedKpi = kpis.find(k => k.id === selectedAction.kpiId);
+                      return linkedKpi ? <> • KPI lié : <strong>{linkedKpi.name}</strong></> : null;
+                    })()}
                   </p>
                 </div>
 

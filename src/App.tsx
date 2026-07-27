@@ -448,6 +448,8 @@ export default function App() {
           {activeTab === 'actions' && (
             <ActionPlan
               actions={actions}
+              kpis={kpis}
+              users={users}
               onAddAction={handleAddAction}
               onUpdateAction={handleUpdateAction}
               onDeleteAction={handleDeleteAction}

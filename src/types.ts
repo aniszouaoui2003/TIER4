@@ -100,6 +100,7 @@ export interface Action {
   completionPercentage: number;
   comments: ActionComment[];
   attachments: ActionAttachment[];
+  kpiId?: string; // Optional link to the KPI this action is meant to improve
 }
 
 export interface MeetingAttendee {

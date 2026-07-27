@@ -458,7 +458,7 @@ export default function ActionPlan({
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Département SQCDP</label>
                   <select
                     value={newDept}
-                    onChange={(e) => setNewDept(e.target.value)}
+                    onChange={(e) => { setNewDept(e.target.value); setNewKpiId(''); }}
                     className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
                   >
                     {depts.map(d => <option key={d} value={d}>{d}</option>)}
@@ -547,7 +547,7 @@ export default function ActionPlan({
                 </div>
               </div>
 
-              {/* KPI associé (optionnel) */}
+              {/* KPI associé (optionnel) — limité aux KPI du département SQCDP sélectionné ci-dessus */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">KPI associé (optionnel)</label>
                 <select
@@ -556,17 +556,9 @@ export default function ActionPlan({
                   className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
                 >
                   <option value="">Aucun KPI associé</option>
-                  {depts.map(cat => {
-                    const catKpis = kpis.filter(k => k.category === cat);
-                    if (catKpis.length === 0) return null;
-                    return (
-                      <optgroup key={cat} label={cat}>
-                        {catKpis.map(k => (
-                          <option key={k.id} value={k.id}>{k.name}</option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
+                  {kpis.filter(k => k.category === newDept).map(k => (
+                    <option key={k.id} value={k.id}>{k.name}</option>
+                  ))}
                 </select>
               </div>
 

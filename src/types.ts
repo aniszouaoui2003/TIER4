@@ -51,6 +51,10 @@ export interface User {
   // Server-only: a bcrypt hash, never included in any API response sent to the client. Optional
   // here only so the shared type still matches the (hash-stripped) objects the frontend receives.
   passwordHash?: string;
+  // True whenever the current password was set by someone other than the account holder (a brand
+  // new account, or an admin reset) — enforcement only blocks 'user' accounts (see App.tsx), but
+  // the flag itself is tracked for every account so it stays meaningful if that's ever loosened.
+  mustChangePassword?: boolean;
   department?: string;
   avatar?: string;
 }

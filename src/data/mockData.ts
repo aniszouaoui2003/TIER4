@@ -25,14 +25,14 @@ export const FULL_MODULE_ACCESS: ModulePermissions = {
 
 export const INITIAL_USERS: User[] = [
   { id: 'usr-1', name: 'Anis Zouaoui', email: 'anis.zouaoui2003@gmail.com', role: 'DGA (Administrateur)', department: 'Direction', accessLevel: 'admin', passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-2', name: 'Khouloud Ncibi', email: 'k.ncibi@officeplast.com', role: 'directeur QHSE', department: 'QHSE', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-3', name: 'Ali Bacha', email: 'a.bacha@officeplast.com', role: 'DRH', department: 'Ressources Humaines', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-4', name: 'Abdallah Dhouib', email: 'a.dhouib@officeplast.com', role: 'Responsable de production', department: 'Production', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-5', name: 'Mahdi Moonem', email: 'm.moonem@officeplast.com', role: 'Responsable de production', department: 'Production', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-6', name: 'Said ben Aissa', email: 's.benaissa@officeplast.com', role: 'Directeur Export', department: 'Export', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-7', name: 'Mokded Nasri', email: 'm.nasri@officeplast.com', role: 'Directeur Compta&contrôle de gestion', department: 'Finance', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-8', name: 'Jamel Ferchichi', email: 'j.ferchichi@officeplast.com', role: 'Directeur technique', department: 'Technique', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
-  { id: 'usr-9', name: 'Mhamed Nasri', email: 'mhamed.nasri@officeplast.com', role: 'DAF', department: 'Finance', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH }
+  { id: 'usr-2', name: 'Khouloud Ncibi', email: 'k.ncibi@officeplast.com', role: 'directeur QHSE', department: 'QHSE', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-3', name: 'Ali Bacha', email: 'a.bacha@officeplast.com', role: 'DRH', department: 'Ressources Humaines', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-4', name: 'Abdallah Dhouib', email: 'a.dhouib@officeplast.com', role: 'Responsable de production', department: 'Production', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-5', name: 'Mahdi Moonem', email: 'm.moonem@officeplast.com', role: 'Responsable de production', department: 'Production', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-6', name: 'Said ben Aissa', email: 's.benaissa@officeplast.com', role: 'Directeur Export', department: 'Export', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-7', name: 'Mokded Nasri', email: 'm.nasri@officeplast.com', role: 'Directeur Compta&contrôle de gestion', department: 'Finance', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-8', name: 'Jamel Ferchichi', email: 'j.ferchichi@officeplast.com', role: 'Directeur technique', department: 'Technique', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true },
+  { id: 'usr-9', name: 'Mhamed Nasri', email: 'mhamed.nasri@officeplast.com', role: 'DAF', department: 'Finance', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH, mustChangePassword: true }
 ];
 
 export const INITIAL_KPIS: KPI[] = [

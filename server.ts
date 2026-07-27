@@ -433,6 +433,12 @@ function migrateUserAccounts(data: DataStoreSchema): boolean {
       u.permissions = { ...FULL_MODULE_ACCESS };
       changed = true;
     }
+    // Login itself is brand new — no 'user' account has ever authenticated with a real password
+    // yet, so treat their next login as a first login and require them to set their own.
+    if (u.accessLevel === 'user' && u.mustChangePassword === undefined) {
+      u.mustChangePassword = true;
+      changed = true;
+    }
   });
 
   return changed;
@@ -571,7 +577,10 @@ app.post('/api/users', async (req, res) => {
     ...rest,
     accessLevel: resolvedAccessLevel,
     permissions: resolvedAccessLevel === 'user' ? { ...FULL_MODULE_ACCESS, ...(permissions || {}) } : undefined,
-    passwordHash: initialPassword ? bcrypt.hashSync(String(initialPassword), 10) : DEFAULT_PASSWORD_HASH
+    passwordHash: initialPassword ? bcrypt.hashSync(String(initialPassword), 10) : DEFAULT_PASSWORD_HASH,
+    // The account holder never chose this password themselves — require them to set their own on
+    // their first login (enforced client-side for 'user' accounts, see hasModuleAccess callers).
+    mustChangePassword: true
   };
   db.users.push(newUser);
   await writeDB(db);
@@ -702,6 +711,9 @@ app.put('/api/users/:id/password', async (req, res) => {
   }
 
   target.passwordHash = bcrypt.hashSync(newPassword, 10);
+  // Chosen by the account holder themselves → satisfied. Set by someone else (admin reset) →
+  // they'll be required to set their own again on their next login.
+  target.mustChangePassword = !isSelfService;
   await writeDB(db);
   await addAuditLog(
     requester.name,

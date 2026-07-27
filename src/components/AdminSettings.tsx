@@ -1027,6 +1027,11 @@ export default function AdminSettings({
                           {u.permissions ? Object.values(u.permissions).filter(Boolean).length : 0}/{Object.keys(MODULE_LABELS).length} modules accessibles
                         </span>
                       )}
+                      {u.accessLevel === 'user' && u.mustChangePassword && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 flex items-center gap-0.5">
+                          <KeyRound className="w-2.5 h-2.5" /> 1ère connexion en attente
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

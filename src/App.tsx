@@ -14,6 +14,7 @@ import KPITeamGuruEntry from './components/KPITeamGuruEntry';
 import AttendanceTracker from './components/AttendanceTracker';
 import GembaTracker from './components/GembaTracker';
 import LoginScreen from './components/LoginScreen';
+import ForcePasswordChangeScreen from './components/ForcePasswordChangeScreen';
 import { User, KPI, Action, Meeting, SQLServerConfig, AuditLog } from './types';
 import { hasModuleAccess } from './utils/permissions';
 
@@ -410,6 +411,15 @@ export default function App() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) return data.error || 'Échec de la mise à jour du mot de passe.';
+      // Changing your own password always satisfies the "first login" requirement — update the
+      // live session so the mandatory screen (if showing) unmounts immediately.
+      if (targetUserId === currentUser.id) {
+        setCurrentUser(prev => (prev ? { ...prev, mustChangePassword: false } : prev));
+      }
+      // Refresh the users list so an admin's Configuration screen reflects the new
+      // mustChangePassword state without needing a full page reload.
+      const resUsers = await fetch('/api/users').then(r => r.json());
+      setUsers(resUsers);
       return null;
     } catch {
       return 'Impossible de contacter le serveur.';
@@ -513,6 +523,20 @@ export default function App() {
   // LOGIN SCREEN — no remembered/valid session, credentials required.
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  // MANDATORY FIRST-LOGIN PASSWORD CHANGE — 'user' accounts only (admins are exempt); blocks the
+  // rest of the app until the account holder sets their own password.
+  if (currentUser.accessLevel === 'user' && currentUser.mustChangePassword) {
+    return (
+      <ForcePasswordChangeScreen
+        currentUser={currentUser}
+        onChangePassword={(currentPassword, newPassword) =>
+          handleChangePassword(currentUser.id, newPassword, currentPassword)
+        }
+        onLogout={handleLogout}
+      />
+    );
   }
 
   return (

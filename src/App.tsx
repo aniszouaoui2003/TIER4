@@ -509,6 +509,13 @@ export default function App() {
         </div>
       )}
 
+      {/* SIGNATURE */}
+      <div className="fixed bottom-2 right-3 z-50 pointer-events-none select-none">
+        <span className="text-[10px] font-mono text-slate-400/70 dark:text-slate-500/60 tracking-wide">
+          Designed by A.ZOUAOUI
+        </span>
+      </div>
+
     </div>
   );
 }

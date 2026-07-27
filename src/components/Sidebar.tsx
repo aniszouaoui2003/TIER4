@@ -11,7 +11,6 @@ import {
   Database,
   Sliders,
   TrendingUp,
-  Building2,
   Users,
   LogOut,
   Moon,
@@ -24,6 +23,7 @@ import {
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { hasModuleAccess } from '../utils/permissions';
+import officeplastLogo from '../../assets/officeplast-logo.png';
 
 interface SidebarProps {
   activeTab: string;
@@ -111,9 +111,7 @@ export default function Sidebar({
     <aside className="w-68 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen shrink-0 transition-colors duration-200">
       {/* Header */}
       <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
-        <div className="p-2 bg-blue-600 text-white rounded-lg shadow-sm">
-          <Building2 className="w-5 h-5" id="sidebar-logo-icon" />
-        </div>
+        <img src={officeplastLogo} alt="OfficePlast" className="w-9 h-9 object-contain shrink-0" id="sidebar-logo-icon" />
         <div>
           <h1 className="font-display font-bold text-sm tracking-tight text-slate-900 dark:text-white uppercase">
             Officeplast

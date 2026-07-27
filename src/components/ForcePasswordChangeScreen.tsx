@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { Building2, KeyRound, AlertCircle, LogOut } from 'lucide-react';
+import { KeyRound, AlertCircle, LogOut } from 'lucide-react';
 import { User } from '../types';
+import officeplastLogo from '../../assets/officeplast-logo.png';
 
 interface ForcePasswordChangeScreenProps {
   currentUser: User;
@@ -41,9 +42,7 @@ export default function ForcePasswordChangeScreen({ currentUser, onChangePasswor
     <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-8 space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="p-3 bg-blue-600 text-white rounded-xl shadow-sm">
-            <Building2 className="w-6 h-6" />
-          </div>
+          <img src={officeplastLogo} alt="OfficePlast" className="w-14 h-14 object-contain" />
           <div>
             <h1 className="font-display font-bold text-base tracking-tight text-slate-900 dark:text-white uppercase">
               Bienvenue, {currentUser.name.split(' ')[0]}

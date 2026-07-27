@@ -4,7 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { Building2, Lock, Mail, Loader2, AlertCircle } from 'lucide-react';
+import { Lock, Mail, Loader2, AlertCircle } from 'lucide-react';
+import officeplastLogo from '../../assets/officeplast-logo.png';
 
 interface LoginScreenProps {
   onLogin: (email: string, password: string) => Promise<string | null>;
@@ -31,18 +32,11 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
     <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-8 space-y-6">
         {/* Branding */}
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="p-3 bg-blue-600 text-white rounded-xl shadow-sm">
-            <Building2 className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="font-display font-bold text-base tracking-tight text-slate-900 dark:text-white uppercase">
-              Officeplast
-            </h1>
-            <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">
-              TIER4 Meeting
-            </p>
-          </div>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <img src={officeplastLogo} alt="OfficePlast" className="w-16 h-16 object-contain" />
+          <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">
+            TIER4 Meeting
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

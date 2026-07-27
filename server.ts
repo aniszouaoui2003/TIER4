@@ -698,15 +698,22 @@ app.put('/api/users/:id/password', async (req, res) => {
     return res.status(401).json({ error: 'Utilisateur demandeur introuvable.' });
   }
 
-  const isSelfService = requester.id === target.id;
-  const isAdminReset = requester.accessLevel === 'admin';
-  if (!isSelfService && !isAdminReset) {
-    return res.status(403).json({ error: 'Habilitation insuffisante pour modifier ce mot de passe.' });
-  }
+  // The two password-change flows are told apart by whether a current password was submitted,
+  // not by whether requester and target are the same account — an admin resetting their OWN
+  // password from the admin panel is still an admin reset (no current password collected by that
+  // form), and must not fall into the self-service branch just because requester.id === target.id.
+  const isSelfService = typeof currentPassword === 'string' && currentPassword.length > 0;
 
   if (isSelfService) {
-    if (!currentPassword || !bcrypt.compareSync(currentPassword, target.passwordHash || '')) {
+    if (requester.id !== target.id) {
+      return res.status(403).json({ error: 'Habilitation insuffisante pour modifier ce mot de passe.' });
+    }
+    if (!bcrypt.compareSync(currentPassword, target.passwordHash || '')) {
       return res.status(401).json({ error: 'Mot de passe actuel incorrect.' });
+    }
+  } else {
+    if (requester.accessLevel !== 'admin') {
+      return res.status(403).json({ error: 'Habilitation insuffisante pour modifier ce mot de passe.' });
     }
   }
 

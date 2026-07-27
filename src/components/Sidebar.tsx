@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -11,24 +11,26 @@ import {
   Database,
   Sliders,
   TrendingUp,
-  ShieldCheck,
-  UserCheck,
   Building2,
   Users,
   LogOut,
   Moon,
   Sun,
   Grid,
-  Footprints
+  Footprints,
+  KeyRound,
+  X,
+  ShieldCheck
 } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { hasModuleAccess } from '../utils/permissions';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   currentUser: User;
-  setCurrentUser: (user: User) => void;
-  allUsers: User[];
+  onLogout: () => void;
+  onChangeMyPassword: (currentPassword: string, newPassword: string) => Promise<string | null>;
   isDarkMode: boolean;
   setIsDarkMode: (val: boolean) => void;
 }
@@ -37,11 +39,19 @@ export default function Sidebar({
   activeTab,
   setActiveTab,
   currentUser,
-  setCurrentUser,
-  allUsers,
+  onLogout,
+  onChangeMyPassword,
   isDarkMode,
   setIsDarkMode
 }: SidebarProps) {
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
   const navItems = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard },
     { id: 'modules', label: 'Indicateurs Métiers', icon: TrendingUp },
@@ -52,11 +62,9 @@ export default function Sidebar({
     { id: 'meetings', label: 'Réunion Tier 4', icon: CalendarDays },
     { id: 'db-sync', label: 'Connecteur SQL', icon: Database },
     { id: 'admin', label: 'Configuration', icon: Sliders }
-  ];
+  ].filter(item => hasModuleAccess(currentUser, item.id));
 
-  const getRoleLabel = (role: UserRole) => {
-    return role;
-  };
+  const getRoleLabel = (role: UserRole) => role;
 
   const getRoleColor = (role: UserRole) => {
     if (role.includes('DGA')) {
@@ -69,6 +77,34 @@ export default function Sidebar({
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300';
     }
     return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300';
+  };
+
+  const resetPasswordModal = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError(null);
+    setPasswordSuccess(false);
+  };
+
+  const handleSubmitPasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+    setSubmitting(true);
+    const errorMessage = await onChangeMyPassword(currentPassword, newPassword);
+    setSubmitting(false);
+    if (errorMessage) {
+      setPasswordError(errorMessage);
+      return;
+    }
+    setPasswordSuccess(true);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
   };
 
   return (
@@ -114,12 +150,9 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* Role Selector & User Block */}
+      {/* User Block */}
       <div className="p-4 border-t border-slate-100 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-950/20">
-        <div className="flex items-center justify-between">
-          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-            Simuler un Rôle
-          </div>
+        <div className="flex items-center justify-end">
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className="p-1 rounded-md text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -129,30 +162,9 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Dropdown to switch user role directly in UI */}
-        <div className="relative">
-          <select
-            id="role-simulator-select"
-            value={currentUser.id}
-            onChange={(e) => {
-              const selected = allUsers.find(u => u.id === e.target.value);
-              if (selected) {
-                setCurrentUser(selected);
-              }
-            }}
-            className="w-full text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md py-1.5 px-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {allUsers.map(u => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({getRoleLabel(u.role)})
-              </option>
-            ))}
-          </select>
-        </div>
-
         {/* Current User Card */}
-        <div className="flex items-center gap-2.5 pt-1">
-          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm uppercase">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm uppercase shrink-0">
             {currentUser.name.split(' ').map(n => n[0]).join('')}
           </div>
           <div className="overflow-hidden min-w-0 flex-1">
@@ -162,14 +174,112 @@ export default function Sidebar({
             <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
               {currentUser.email}
             </p>
-            <div className="mt-1 flex">
+            <div className="mt-1 flex items-center gap-1 flex-wrap">
               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${getRoleColor(currentUser.role)}`}>
                 {getRoleLabel(currentUser.role)}
               </span>
+              {currentUser.accessLevel === 'admin' && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 flex items-center gap-0.5">
+                  <ShieldCheck className="w-2.5 h-2.5" /> Admin
+                </span>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Account actions */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => { resetPasswordModal(); setIsPasswordModalOpen(true); }}
+            className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            <KeyRound className="w-3.5 h-3.5" /> Mot de passe
+          </button>
+          <button
+            onClick={onLogout}
+            className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 rounded-lg border border-rose-200 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Déconnexion
+          </button>
+        </div>
       </div>
+
+      {/* Change Password Modal */}
+      {isPasswordModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <h3 className="font-sans font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-blue-500" /> Changer mon mot de passe
+              </h3>
+              <button onClick={() => setIsPasswordModalOpen(false)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {passwordSuccess ? (
+              <div className="p-5 space-y-4 text-center">
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+                  Mot de passe mis à jour avec succès.
+                </p>
+                <button
+                  onClick={() => setIsPasswordModalOpen(false)}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  Fermer
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitPasswordChange} className="p-5 space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Mot de passe actuel *</label>
+                  <input
+                    type="password"
+                    required
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Nouveau mot de passe *</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={4}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Confirmer le nouveau mot de passe *</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={4}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg p-2.5 text-slate-800 dark:text-slate-200 focus:outline-none"
+                  />
+                </div>
+
+                {passwordError && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">{passwordError}</p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  {submitting ? 'Mise à jour...' : 'Mettre à jour'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

@@ -7,6 +7,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
 import { loadRaw, persistRaw } from './src/data/store.js';
 import { MONTH_WEEK_RANGES, CURRENT_WEEK, getMonthIndexForWeek } from './src/utils/weekCalendar.js';
@@ -43,8 +44,19 @@ import {
   INITIAL_USERS,
   INITIAL_ATTENDANCE,
   INITIAL_GEMBA,
-  INITIAL_GEMBA_TARGET
+  INITIAL_GEMBA_TARGET,
+  DEFAULT_PASSWORD_HASH,
+  FULL_MODULE_ACCESS
 } from './src/data/mockData.js';
+
+const ADMIN_EMAIL = 'anis.zouaoui2003@gmail.com';
+
+// Never let a password hash leak into an API response — every route that returns one or more
+// User objects to the client must pass them through this first.
+function stripPasswordHash<T extends { passwordHash?: string }>(user: T): Omit<T, 'passwordHash'> {
+  const { passwordHash, ...rest } = user;
+  return rest;
+}
 
 // Helper to initialize and retrieve database
 interface DataStoreSchema {
@@ -402,6 +414,30 @@ function migrateAmeliorationContinueCategory(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// Backfills accessLevel/passwordHash/permissions onto user records saved before the auth system
+// existed. Pure presence checks (not value-threshold based like the migration above), so it's
+// naturally idempotent — safe to run on every read.
+function migrateUserAccounts(data: DataStoreSchema): boolean {
+  let changed = false;
+
+  data.users?.forEach((u: any) => {
+    if (!u.passwordHash) {
+      u.passwordHash = DEFAULT_PASSWORD_HASH;
+      changed = true;
+    }
+    if (u.accessLevel !== 'admin' && u.accessLevel !== 'user') {
+      u.accessLevel = u.email === ADMIN_EMAIL ? 'admin' : 'user';
+      changed = true;
+    }
+    if (u.accessLevel === 'user' && !u.permissions) {
+      u.permissions = { ...FULL_MODULE_ACCESS };
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
 async function readDB(): Promise<DataStoreSchema> {
   try {
     const data = await loadRaw<DataStoreSchema>();
@@ -448,6 +484,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateAmeliorationContinueCategory(data)) {
+        modified = true;
+      }
+
+      if (migrateUserAccounts(data)) {
         modified = true;
       }
 
@@ -510,28 +550,187 @@ async function addAuditLog(user: string, role: string, action: string, module: s
 // API ROUTES
 // ==========================================
 
-// 1. Users list
+// 1. Users list — never sends passwordHash to the client.
 app.get('/api/users', async (req, res) => {
   const db = await readDB();
-  res.json(db.users);
+  res.json(db.users.map(stripPasswordHash));
 });
 
 app.post('/api/users', async (req, res) => {
   const db = await readDB();
+  const { initialPassword, accessLevel, permissions, ...rest } = req.body;
+
+  const email = (rest.email || '').trim().toLowerCase();
+  if (email && db.users.some(u => u.email.toLowerCase() === email)) {
+    return res.status(409).json({ error: 'Un utilisateur avec cet email existe déjà.' });
+  }
+
+  const resolvedAccessLevel = accessLevel === 'admin' ? 'admin' : 'user';
   const newUser = {
     id: `usr-${Date.now()}`,
-    ...req.body
+    ...rest,
+    accessLevel: resolvedAccessLevel,
+    permissions: resolvedAccessLevel === 'user' ? { ...FULL_MODULE_ACCESS, ...(permissions || {}) } : undefined,
+    passwordHash: initialPassword ? bcrypt.hashSync(String(initialPassword), 10) : DEFAULT_PASSWORD_HASH
   };
   db.users.push(newUser);
   await writeDB(db);
   await addAuditLog(
-    'Administrateur',
-    'Admin',
+    req.body.createdBy || 'Administrateur',
+    req.body.createdByRole || 'Admin',
     'Habilitation',
     'Utilisateurs',
-    `Nouvel utilisateur inscrit : [${newUser.name}] avec le rôle [${newUser.role}]`
+    `Nouvel utilisateur inscrit : [${newUser.name}] (${resolvedAccessLevel === 'admin' ? 'Admin' : 'Utilisateur'})`
   );
-  res.status(201).json(newUser);
+  res.status(201).json(stripPasswordHash(newUser));
+});
+
+// Edit an existing user's profile (name, email, role/title, department, accessLevel, permissions).
+// Password is never touched here — use the dedicated password route below.
+app.put('/api/users/:id', async (req, res) => {
+  const db = await readDB();
+  const { id } = req.params;
+  const index = db.users.findIndex(u => u.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Utilisateur non trouvé' });
+  }
+
+  const { passwordHash, initialPassword, modifiedBy, modifiedByRole, ...fields } = req.body;
+
+  if (fields.email) {
+    const email = String(fields.email).trim().toLowerCase();
+    if (db.users.some(u => u.id !== id && u.email.toLowerCase() === email)) {
+      return res.status(409).json({ error: 'Un utilisateur avec cet email existe déjà.' });
+    }
+  }
+
+  // Demoting the last remaining admin would lock everyone out of Configuration.
+  if (fields.accessLevel === 'user' && db.users[index].accessLevel === 'admin') {
+    const otherAdmins = db.users.filter(u => u.id !== id && u.accessLevel === 'admin');
+    if (otherAdmins.length === 0) {
+      return res.status(400).json({ error: 'Impossible de rétrograder le dernier administrateur restant.' });
+    }
+  }
+
+  const updated = { ...db.users[index], ...fields };
+  if (updated.accessLevel === 'admin') {
+    updated.permissions = undefined;
+  } else if (!updated.permissions) {
+    updated.permissions = { ...FULL_MODULE_ACCESS };
+  }
+  db.users[index] = updated;
+  await writeDB(db);
+  await addAuditLog(
+    modifiedBy || 'Administrateur',
+    modifiedByRole || 'Admin',
+    'Habilitation',
+    'Utilisateurs',
+    `Profil utilisateur modifié : [${updated.name}]`
+  );
+  res.json(stripPasswordHash(updated));
+});
+
+// Delete a user. Guards against self-deletion and against deleting the last remaining admin,
+// either of which would leave nobody able to reach Configuration.
+app.delete('/api/users/:id', async (req, res) => {
+  const db = await readDB();
+  const { id } = req.params;
+  const requesterId = String(req.query.requesterId || '');
+  const requesterName = String(req.query.requesterName || 'Administrateur');
+  const requesterRole = String(req.query.requesterRole || 'Admin');
+
+  const target = db.users.find(u => u.id === id);
+  if (!target) {
+    return res.status(404).json({ error: 'Utilisateur non trouvé' });
+  }
+  if (id === requesterId) {
+    return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte.' });
+  }
+  if (target.accessLevel === 'admin' && db.users.filter(u => u.accessLevel === 'admin').length <= 1) {
+    return res.status(400).json({ error: 'Impossible de supprimer le dernier administrateur restant.' });
+  }
+
+  db.users = db.users.filter(u => u.id !== id);
+  await writeDB(db);
+  await addAuditLog(
+    requesterName,
+    requesterRole,
+    'Habilitation',
+    'Utilisateurs',
+    `Utilisateur supprimé : [${target.name}]`
+  );
+  res.json({ success: true });
+});
+
+// Change a user's password. Two modes:
+//  - Admin reset: requesterId belongs to an admin (and isn't the target) — no currentPassword
+//    needed, since the whole point is unblocking someone who forgot theirs.
+//  - Self-service: requesterId === target id — currentPassword must match before the change.
+app.put('/api/users/:id/password', async (req, res) => {
+  const db = await readDB();
+  const { id } = req.params;
+  const { newPassword, currentPassword, requesterId } = req.body as {
+    newPassword?: string;
+    currentPassword?: string;
+    requesterId?: string;
+  };
+
+  if (!newPassword || newPassword.length < 4) {
+    return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 4 caractères.' });
+  }
+
+  const target = db.users.find(u => u.id === id);
+  if (!target) {
+    return res.status(404).json({ error: 'Utilisateur non trouvé' });
+  }
+
+  const requester = db.users.find(u => u.id === requesterId);
+  if (!requester) {
+    return res.status(401).json({ error: 'Utilisateur demandeur introuvable.' });
+  }
+
+  const isSelfService = requester.id === target.id;
+  const isAdminReset = requester.accessLevel === 'admin';
+  if (!isSelfService && !isAdminReset) {
+    return res.status(403).json({ error: 'Habilitation insuffisante pour modifier ce mot de passe.' });
+  }
+
+  if (isSelfService) {
+    if (!currentPassword || !bcrypt.compareSync(currentPassword, target.passwordHash || '')) {
+      return res.status(401).json({ error: 'Mot de passe actuel incorrect.' });
+    }
+  }
+
+  target.passwordHash = bcrypt.hashSync(newPassword, 10);
+  await writeDB(db);
+  await addAuditLog(
+    requester.name,
+    requester.role,
+    'Habilitation',
+    'Utilisateurs',
+    isSelfService
+      ? `Mot de passe mis à jour par l'utilisateur : [${target.name}]`
+      : `Mot de passe réinitialisé par l'administrateur pour : [${target.name}]`
+  );
+  res.json({ success: true });
+});
+
+// Login — verifies email + password against the stored bcrypt hash and returns the user (never
+// the hash). No session/token layer: the app's existing trust model already has the client hold
+// the "current user" object locally for the rest of the session, same as every other route here.
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body as { email?: string; password?: string };
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email et mot de passe requis.' });
+  }
+
+  const db = await readDB();
+  const user = db.users.find(u => u.email.toLowerCase() === String(email).trim().toLowerCase());
+  if (!user || !bcrypt.compareSync(password, user.passwordHash || '')) {
+    return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
+  }
+
+  res.json(stripPasswordHash(user));
 });
 
 // 2. KPIs list & single operations

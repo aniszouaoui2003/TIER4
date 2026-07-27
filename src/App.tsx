@@ -13,7 +13,11 @@ import AdminSettings from './components/AdminSettings';
 import KPITeamGuruEntry from './components/KPITeamGuruEntry';
 import AttendanceTracker from './components/AttendanceTracker';
 import GembaTracker from './components/GembaTracker';
+import LoginScreen from './components/LoginScreen';
 import { User, KPI, Action, Meeting, SQLServerConfig, AuditLog } from './types';
+import { hasModuleAccess } from './utils/permissions';
+
+const SESSION_STORAGE_KEY = 'tier4_current_user_id';
 
 export default function App() {
   // Tab Routing state
@@ -47,6 +51,15 @@ export default function App() {
     fetchInitialData();
   }, []);
 
+  // Safety net: if the tabs a user can see change (an admin edits their permissions mid-session,
+  // or a stale activeTab survives a fresh login) and the current tab is no longer permitted,
+  // fall back to the dashboard rather than leaving a forbidden screen rendered.
+  useEffect(() => {
+    if (currentUser && !hasModuleAccess(currentUser, activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [currentUser, activeTab]);
+
   const fetchInitialData = async () => {
     setLoading(true);
     setError(null);
@@ -74,9 +87,17 @@ export default function App() {
       setSqlConfig(resSql);
       setAuditLogs(resLogs);
 
-      // Default simulated user is Anis Zouaoui
-      const defaultUser = resUsers.find((u: User) => u.email === 'anis.zouaoui2003@gmail.com') || resUsers[0];
-      setCurrentUser(defaultUser);
+      // Resume a previous session if the remembered user id still exists — otherwise the login
+      // screen is shown (see the render logic below). No auto-login: access requires credentials.
+      const rememberedId = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (rememberedId) {
+        const remembered = resUsers.find((u: User) => u.id === rememberedId);
+        if (remembered) {
+          setCurrentUser(remembered);
+        } else {
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+        }
+      }
     } catch (err: any) {
       console.error('Failed to boot Tier 4 data layers:', err);
       setError('Impossible d\'établir la connexion avec la base de données d\'usine.');
@@ -295,14 +316,22 @@ export default function App() {
   };
 
   // 8. REGISTER NEW COLLABORATOR (ADMIN)
-  const handleAddUser = async (newUserData: Omit<User, 'id'>) => {
+  const handleAddUser = async (newUserData: Omit<User, 'id'> & { initialPassword?: string }) => {
+    if (!currentUser) return;
     try {
       const response = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUserData)
+        body: JSON.stringify({
+          ...newUserData,
+          createdBy: currentUser.name,
+          createdByRole: currentUser.role
+        })
       });
-      if (!response.ok) throw new Error('Échec de création d\'utilisateur');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Échec de création d\'utilisateur');
+      }
       const resUsers = await fetch('/api/users').then(r => r.json());
       const resLogs = await fetch('/api/logs').then(r => r.json());
       setUsers(resUsers);
@@ -310,6 +339,106 @@ export default function App() {
     } catch (err: any) {
       alert(`Erreur : ${err.message}`);
     }
+  };
+
+  // 8a. EDIT AN EXISTING USER'S PROFILE (ADMIN)
+  const handleUpdateUser = async (id: string, updated: Partial<User>) => {
+    if (!currentUser) return;
+    try {
+      const response = await fetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...updated,
+          modifiedBy: currentUser.name,
+          modifiedByRole: currentUser.role
+        })
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Échec de modification de l\'utilisateur');
+      }
+      const updatedUser = await response.json();
+      const resUsers = await fetch('/api/users').then(r => r.json());
+      setUsers(resUsers);
+      // Keep the live session in sync if an admin edits their own profile.
+      if (currentUser.id === id) setCurrentUser(updatedUser);
+      const resLogs = await fetch('/api/logs').then(r => r.json());
+      setAuditLogs(resLogs);
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    }
+  };
+
+  // 8b. DELETE A USER (ADMIN)
+  const handleDeleteUser = async (id: string) => {
+    if (!currentUser) return;
+    try {
+      const params = new URLSearchParams({
+        requesterId: currentUser.id,
+        requesterName: currentUser.name,
+        requesterRole: currentUser.role
+      });
+      const response = await fetch(`/api/users/${id}?${params.toString()}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Échec de suppression de l\'utilisateur');
+      }
+      const resUsers = await fetch('/api/users').then(r => r.json());
+      setUsers(resUsers);
+      const resLogs = await fetch('/api/logs').then(r => r.json());
+      setAuditLogs(resLogs);
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    }
+  };
+
+  // 8c. CHANGE A PASSWORD — admin resetting anyone's (no currentPassword needed), or a user
+  // updating their own (currentPassword required and checked server-side). Returns an error
+  // string on failure, or null on success, so callers can show it inline instead of an alert().
+  const handleChangePassword = async (
+    targetUserId: string,
+    newPassword: string,
+    currentPassword?: string
+  ): Promise<string | null> => {
+    if (!currentUser) return 'Non connecté.';
+    try {
+      const response = await fetch(`/api/users/${targetUserId}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword, currentPassword, requesterId: currentUser.id })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return data.error || 'Échec de la mise à jour du mot de passe.';
+      return null;
+    } catch {
+      return 'Impossible de contacter le serveur.';
+    }
+  };
+
+  // 8d. LOGIN — returns an error string on failure, or null on success.
+  const handleLogin = async (email: string, password: string): Promise<string | null> => {
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return data.error || 'Échec de connexion.';
+      setCurrentUser(data);
+      localStorage.setItem(SESSION_STORAGE_KEY, data.id);
+      return null;
+    } catch {
+      return 'Impossible de contacter le serveur.';
+    }
+  };
+
+  // 8e. LOGOUT
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    setActiveTab('dashboard');
   };
 
   // 9. UPDATE DATABASE CONFIG FOR SQL SERVER
@@ -381,6 +510,11 @@ export default function App() {
     );
   }
 
+  // LOGIN SCREEN — no remembered/valid session, credentials required.
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
   return (
     <div className="h-screen w-screen flex bg-slate-50 dark:bg-slate-950 overflow-hidden text-slate-800 dark:text-slate-100 font-sans">
       
@@ -390,8 +524,10 @@ export default function App() {
           activeTab={activeTab === 'db-sync' ? 'db-sync' : activeTab}
           setActiveTab={setActiveTab}
           currentUser={currentUser}
-          setCurrentUser={setCurrentUser}
-          allUsers={users}
+          onLogout={handleLogout}
+          onChangeMyPassword={(currentPassword, newPassword) =>
+            handleChangePassword(currentUser.id, newPassword, currentPassword)
+          }
           isDarkMode={isDarkMode}
           setIsDarkMode={setIsDarkMode}
         />
@@ -480,6 +616,9 @@ export default function App() {
               onUpdateKPI={handleUpdateKPI}
               onDeleteKPI={handleDeleteKPI}
               onAddUser={handleAddUser}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              onChangePassword={handleChangePassword}
               onUpdateSQLConfig={handleUpdateSQLConfig}
               onTriggerSQLSync={handleTriggerSQLSync}
               onBulkUpdateKPIs={handleBulkUpdateKPIs}
@@ -498,6 +637,9 @@ export default function App() {
               onUpdateKPI={handleUpdateKPI}
               onDeleteKPI={handleDeleteKPI}
               onAddUser={handleAddUser}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              onChangePassword={handleChangePassword}
               onUpdateSQLConfig={handleUpdateSQLConfig}
               onTriggerSQLSync={handleTriggerSQLSync}
               onBulkUpdateKPIs={handleBulkUpdateKPIs}

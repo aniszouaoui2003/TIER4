@@ -23,11 +23,34 @@ export type UserRole =
   | 'Log'
   | 'Workshop';
 
+// Account type driving access control — 'admin' has unrestricted access to every module plus
+// Configuration/Utilisateurs; 'user' is gated by its own `permissions` map below.
+export type AccessLevel = 'admin' | 'user';
+
+// One flag per module a 'user' account can be granted access to. Configuration and the SQL
+// connector are deliberately excluded — those stay admin-only regardless of this map.
+export type ModuleId =
+  | 'dashboard'
+  | 'modules'
+  | 'kpi-entry'
+  | 'presence-tracker'
+  | 'gemba-tracker'
+  | 'actions'
+  | 'meetings';
+
+export type ModulePermissions = Record<ModuleId, boolean>;
+
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  accessLevel: AccessLevel;
+  // Only meaningful when accessLevel === 'user' — admins implicitly have access to everything.
+  permissions?: ModulePermissions;
+  // Server-only: a bcrypt hash, never included in any API response sent to the client. Optional
+  // here only so the shared type still matches the (hash-stripped) objects the frontend receives.
+  passwordHash?: string;
   department?: string;
   avatar?: string;
 }

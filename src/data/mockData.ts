@@ -3,18 +3,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { KPI, Action, Meeting, SQLServerConfig, AuditLog, User, WeeklyAttendance, WeeklyGemba } from '../types';
+import { KPI, Action, Meeting, SQLServerConfig, AuditLog, User, ModulePermissions, WeeklyAttendance, WeeklyGemba } from '../types';
+
+// bcrypt hash of the shared default password "12345678" (10 salt rounds) — every seeded account
+// starts on this password; each user can change their own from the sidebar, and an admin can
+// reset anyone's at any time from Configuration > Utilisateurs. Exported so server.ts's migration
+// of pre-existing (already-deployed) user records can assign the same default.
+export const DEFAULT_PASSWORD_HASH = '$2b$10$RnjyBEVZhPYkD76LTtkFLeuQLK8XE6qnAkx3wVZhoMQlWAg6ChN0O';
+
+// 'user' accounts start with every grantable module enabled (everything except Configuration /
+// Connecteur SQL, which are always admin-only) — least disruptive default, admins restrict from there.
+export const FULL_MODULE_ACCESS: ModulePermissions = {
+  dashboard: true,
+  modules: true,
+  'kpi-entry': true,
+  'presence-tracker': true,
+  'gemba-tracker': true,
+  actions: true,
+  meetings: true
+};
 
 export const INITIAL_USERS: User[] = [
-  { id: 'usr-1', name: 'Anis Zouaoui', email: 'anis.zouaoui2003@gmail.com', role: 'DGA (Administrateur)', department: 'Direction' },
-  { id: 'usr-2', name: 'Khouloud Ncibi', email: 'k.ncibi@officeplast.com', role: 'directeur QHSE', department: 'QHSE' },
-  { id: 'usr-3', name: 'Ali Bacha', email: 'a.bacha@officeplast.com', role: 'DRH', department: 'Ressources Humaines' },
-  { id: 'usr-4', name: 'Abdallah Dhouib', email: 'a.dhouib@officeplast.com', role: 'Responsable de production', department: 'Production' },
-  { id: 'usr-5', name: 'Mahdi Moonem', email: 'm.moonem@officeplast.com', role: 'Responsable de production', department: 'Production' },
-  { id: 'usr-6', name: 'Said ben Aissa', email: 's.benaissa@officeplast.com', role: 'Directeur Export', department: 'Export' },
-  { id: 'usr-7', name: 'Mokded Nasri', email: 'm.nasri@officeplast.com', role: 'Directeur Compta&contrôle de gestion', department: 'Finance' },
-  { id: 'usr-8', name: 'Jamel Ferchichi', email: 'j.ferchichi@officeplast.com', role: 'Directeur technique', department: 'Technique' },
-  { id: 'usr-9', name: 'Mhamed Nasri', email: 'mhamed.nasri@officeplast.com', role: 'DAF', department: 'Finance' }
+  { id: 'usr-1', name: 'Anis Zouaoui', email: 'anis.zouaoui2003@gmail.com', role: 'DGA (Administrateur)', department: 'Direction', accessLevel: 'admin', passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-2', name: 'Khouloud Ncibi', email: 'k.ncibi@officeplast.com', role: 'directeur QHSE', department: 'QHSE', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-3', name: 'Ali Bacha', email: 'a.bacha@officeplast.com', role: 'DRH', department: 'Ressources Humaines', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-4', name: 'Abdallah Dhouib', email: 'a.dhouib@officeplast.com', role: 'Responsable de production', department: 'Production', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-5', name: 'Mahdi Moonem', email: 'm.moonem@officeplast.com', role: 'Responsable de production', department: 'Production', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-6', name: 'Said ben Aissa', email: 's.benaissa@officeplast.com', role: 'Directeur Export', department: 'Export', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-7', name: 'Mokded Nasri', email: 'm.nasri@officeplast.com', role: 'Directeur Compta&contrôle de gestion', department: 'Finance', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-8', name: 'Jamel Ferchichi', email: 'j.ferchichi@officeplast.com', role: 'Directeur technique', department: 'Technique', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: 'usr-9', name: 'Mhamed Nasri', email: 'mhamed.nasri@officeplast.com', role: 'DAF', department: 'Finance', accessLevel: 'user', permissions: { ...FULL_MODULE_ACCESS }, passwordHash: DEFAULT_PASSWORD_HASH }
 ];
 
 export const INITIAL_KPIS: KPI[] = [

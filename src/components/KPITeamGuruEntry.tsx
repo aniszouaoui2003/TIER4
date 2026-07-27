@@ -60,8 +60,9 @@ export default function KPITeamGuruEntry({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [onlyMine, setOnlyMine] = useState<boolean>(false);
 
-  // Annual period axis: monthly rollup (read-only) or weekly detail (editable)
-  const [periodMode, setPeriodMode] = useState<'monthly' | 'weekly'>('monthly');
+  // Annual period axis: monthly rollup (read-only) or weekly detail (editable) — defaults to
+  // weekly with the current week centered (see the scroll effect below periodColWidth).
+  const [periodMode, setPeriodMode] = useState<'monthly' | 'weekly'>('weekly');
   // Which single row is shown per KPI: the total, or one site's own figures.
   // KPIs that aren't tracked for the selected site always fall back to their Total row.
   const [siteView, setSiteView] = useState<'total' | 'site1' | 'site2'>('total');
@@ -607,6 +608,19 @@ export default function KPITeamGuruEntry({
   const FROZEN_COLUMNS = '112px 224px 56px 64px 80px';
   const periodColWidth = periodMode === 'monthly' ? 80 : 64;
   const periodCount = periodMode === 'monthly' ? MONTH_WEEK_RANGES.length : allWeeks.length;
+
+  // On entering the weekly view (including the initial default), center the current week column
+  // in the scrollable body instead of leaving it scrolled to Semaine 1.
+  useEffect(() => {
+    if (periodMode !== 'weekly') return;
+    const container = rightBodyRef.current;
+    if (!container) return;
+    const columnLeft = (CURRENT_WEEK - 1) * periodColWidth;
+    const target = Math.max(0, columnLeft + periodColWidth / 2 - container.clientWidth / 2);
+    container.scrollLeft = target;
+    syncHorizontalScroll(target, 'body');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodMode]);
 
   // Renders one grid row for a KPI: its total, or one site's own figures, per the site view picker.
   // Returns two independent cell groups — `left` (the frozen Catégorie→VTD columns, rendered in a

@@ -81,10 +81,12 @@ function monthlyField(rowType: RowType): 'monthlyOverrides' | 'site1MonthlyOverr
 }
 
 // Weekly value for one row; the Total row of a site-tracked KPI is always the live sum of its
-// sites (it is never read from `history` directly), matching how the grid renders it.
+// sites (it is never read from `history` directly), matching how the grid renders it. Formula
+// KPIs are excluded from that sum — their Total is its own blended ratio computed server-side
+// (e.g. conformité = (PC-(NC1*2+NC2))/PC), never the sum of two percentages.
 export function getWeeklyRowValue(kpi: KPI, rowType: RowType, week: number): number | null {
   const label = `Semaine ${week}`;
-  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
+  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked) && !FORMULA_KPI_IDS.includes(kpi.id);
   if (rowType === 'total' && siteTracked) {
     const h1 = kpi.site1Checked ? kpi.site1History?.find(h => h.date === label) : undefined;
     const h2 = kpi.site2Checked ? kpi.site2History?.find(h => h.date === label) : undefined;
@@ -97,10 +99,11 @@ export function getWeeklyRowValue(kpi: KPI, rowType: RowType, week: number): num
 
 // Effective monthly value for one row: a manual override wins, otherwise the average of the
 // weeks reported so far in that month. Total is always the live sum of its sites' effective
-// monthly values (so it inherits their overrides too).
+// monthly values (so it inherits their overrides too) — except for formula KPIs, whose Total
+// is instead the average of its own weekly blended-ratio history (see getWeeklyRowValue).
 export function getMonthlyRowValue(kpi: KPI, rowType: RowType, monthIndex: number): number | null {
   const month = MONTH_WEEK_RANGES[monthIndex];
-  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
+  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked) && !FORMULA_KPI_IDS.includes(kpi.id);
 
   if (rowType === 'total' && siteTracked) {
     const v1 = kpi.site1Checked ? getMonthlyRowValue(kpi, 'site1', monthIndex) : null;

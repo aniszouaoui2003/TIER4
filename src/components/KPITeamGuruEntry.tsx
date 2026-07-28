@@ -243,8 +243,8 @@ export default function KPITeamGuruEntry({
     return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
   };
 
-  // Value-to-date = average of all reported weeks so far this year
-  const getVTD = (getWeekVal: (w: number) => number | null): number | null => {
+  // Period-to-date = average of all reported weeks so far this year
+  const getPTD = (getWeekVal: (w: number) => number | null): number | null => {
     const vals = allWeeks.map(getWeekVal).filter((v): v is number => v !== null);
     if (vals.length === 0) return null;
     return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
@@ -623,13 +623,13 @@ export default function KPITeamGuruEntry({
   }, [periodMode]);
 
   // Renders one grid row for a KPI: its total, or one site's own figures, per the site view picker.
-  // Returns two independent cell groups — `left` (the frozen Catégorie→VTD columns, rendered in a
+  // Returns two independent cell groups — `left` (the frozen Catégorie→PTD columns, rendered in a
   // panel that never scrolls horizontally) and `right` (the annual period columns, rendered in a
   // separately horizontally-scrolling panel) — since CSS Grid items can't reliably stick beyond
   // their own grid cell, the only robust cross-browser way to freeze columns is to not scroll them.
   const renderRow = (k: KPI, rowType: RowType, liveK: KPI, isFormula: boolean, isLowerBetterRow: boolean, isModified: boolean, bothSites: boolean) => {
     const getWeekVal = (w: number) => getRowWeekValue(k, rowType, w);
-    const vtd = getVTD(getWeekVal);
+    const ptd = getPTD(getWeekVal);
     // Total is editable only when the KPI isn't formula-derived and isn't summed from two sites
     const editable = rowType === 'total' ? !isFormula && !bothSites : !isFormula;
 
@@ -714,13 +714,13 @@ export default function KPITeamGuruEntry({
           )}
         </div>
 
-        {/* 5. Value-To-Date summary cell */}
+        {/* 5. Period-To-Date summary cell */}
         <div className="py-2.5 px-2 text-center flex items-center justify-center border-l-2 border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/30">
-          {vtd === null ? (
+          {ptd === null ? (
             <span className="text-[11px] text-slate-300 dark:text-slate-600 font-mono">—</span>
           ) : (
-            <div className={`mx-auto px-1.5 py-1 rounded-md border font-mono ${getCellColorClass(evaluateStatus(vtd, liveK.target, k.name, k.category))}`}>
-              <div className="text-xs font-extrabold leading-none">{vtd}</div>
+            <div className={`mx-auto px-1.5 py-1 rounded-md border font-mono ${getCellColorClass(evaluateStatus(ptd, liveK.target, k.name, k.category))}`}>
+              <div className="text-xs font-extrabold leading-none">{ptd}</div>
               <div className="text-[9px] opacity-60 leading-none mt-0.5">cible {liveK.target}</div>
             </div>
           )}
@@ -1054,7 +1054,7 @@ export default function KPITeamGuruEntry({
           return (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs flex mt-6" id="teamguru-grid-table">
 
-              {/* Left panel: frozen Catégorie → VTD columns. Never scrolls horizontally. */}
+              {/* Left panel: frozen Catégorie → PTD columns. Never scrolls horizontally. */}
               <div className="shrink-0" style={{ width: 536 }}>
                 <div className={`${headerRowCls} rounded-tl-xl`} style={{ gridTemplateColumns: FROZEN_COLUMNS, willChange: 'transform' }}>
                   <div className="py-3 px-4 flex items-center">Catégorie</div>
@@ -1062,7 +1062,7 @@ export default function KPITeamGuruEntry({
                   <div className="py-3 px-2 text-center flex items-center justify-center">Unité</div>
                   <div className="py-3 px-3 text-center flex items-center justify-center">Target</div>
                   <div className="py-3 px-2 text-center flex items-center justify-center border-l-2 border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800">
-                    VTD
+                    PTD
                   </div>
                 </div>
                 {rows.map(r => r.left)}

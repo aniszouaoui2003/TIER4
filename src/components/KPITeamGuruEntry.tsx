@@ -606,7 +606,7 @@ export default function KPITeamGuruEntry({
 
   // Explicit pixel widths for the two independently-scrolling panels (see renderRow for why).
   const FROZEN_COLUMNS = '112px 224px 56px 64px 80px';
-  const periodColWidth = periodMode === 'monthly' ? 80 : 64;
+  const periodColWidth = periodMode === 'monthly' ? 80 : 76;
   const periodCount = periodMode === 'monthly' ? MONTH_WEEK_RANGES.length : allWeeks.length;
 
   // On entering the weekly view (including the initial default), center the current week column
@@ -743,11 +743,11 @@ export default function KPITeamGuruEntry({
             return (
               <div
                 key={m.name}
-                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center flex items-center justify-center ${
+                className={`py-1.5 px-1.5 border-l border-slate-100 dark:border-slate-800 text-center flex items-center justify-center ${
                   idx === currentMonthIndex ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
                 }`}
               >
-                <div className="relative w-16 mx-auto">
+                <div className="relative w-full">
                   <input
                     type="text"
                     value={effective.value ?? ''}
@@ -756,7 +756,7 @@ export default function KPITeamGuruEntry({
                     disabled={!editable}
                     title={effective.isOverride ? 'Saisie manuelle — effacez pour revenir au cumul hebdomadaire' : 'Cumul hebdomadaire calculé'}
                     onChange={(e) => handleMonthlyChange(k.id, rowType, m.name, e.target.value)}
-                    className={`w-full text-center py-1 border rounded-md font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
+                    className={`w-full text-center py-2.5 border rounded-md font-mono font-extrabold text-base focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
                       !editable
                         ? 'bg-slate-100 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-850'
                         : status
@@ -788,11 +788,11 @@ export default function KPITeamGuruEntry({
             return (
               <div
                 key={w}
-                className={`py-2.5 px-2 border-l border-slate-100 dark:border-slate-800 text-center flex items-center justify-center ${
+                className={`py-1.5 px-1.5 border-l border-slate-100 dark:border-slate-800 text-center flex items-center justify-center ${
                   w === CURRENT_WEEK ? 'bg-blue-50/30 dark:bg-blue-950/10' : ''
                 }`}
               >
-                <div className="relative w-16 mx-auto">
+                <div className="relative w-full">
                   <input
                     type="text"
                     value={val ?? ''}
@@ -803,7 +803,7 @@ export default function KPITeamGuruEntry({
                       if (rowType === 'total') handleHistoryChange(k.id, label, e.target.value);
                       else handleSiteHistoryChange(k.id, rowType, label, e.target.value);
                     }}
-                    className={`w-full text-center py-1 border rounded-md font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
+                    className={`w-full text-center py-2.5 border rounded-md font-mono font-extrabold text-base focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all ${
                       !editable
                         ? 'bg-slate-100 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-850'
                         : status

@@ -173,21 +173,6 @@ function recomputeFormulaSiteRatio(
   });
 }
 
-// Site 1 / Site 2 counterpart of a formula KPI that's a direct copy of another KPI (e.g.
-// "valeur produite" = RF), rather than a ratio.
-function copyFormulaSite(target: KpiRecord, source: KpiRecord | undefined, site: 'site1' | 'site2') {
-  if (!source) return;
-  const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
-  if (!source[checkedField]) return;
-  const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
-  const historyField = site === 'site1' ? 'site1History' : 'site2History';
-  const srcHist = (source as any)[historyField] as HistoryEntry[] | undefined;
-  const hasData = ((source as any)[valueField] || 0) !== 0 || (srcHist && srcHist.length > 0);
-  if (!hasData) return;
-  (target as any)[valueField] = (source as any)[valueField] || 0;
-  (target as any)[historyField] = srcHist ? srcHist.map(h => ({ ...h })) : [];
-}
-
 function recalculateAllFormulas(db: DataStoreSchema) {
   if (!db.kpis) return;
 
@@ -318,49 +303,32 @@ function recalculateAllFormulas(db: DataStoreSchema) {
     recomputeFormulaSiteRatio(ratio, rf, rp, 'site2', 100, 1);
   }
 
-  // 4. Recalculate "valeur produite" = rf (recette fabrique)
-  const valProd = db.kpis.find(k => k.id === 'kpi-cost-valeur-produite');
-  if (rf && valProd && hasRecordedData(rf)) {
-    valProd.weeklyValue = rf.weeklyValue;
-    valProd.dailyValue = rf.dailyValue;
-    valProd.target = rf.target;
-    valProd.status = evaluateKPIStatus(valProd.weeklyValue, valProd.target, valProd.name, valProd.category);
-    updateKPIHistory(valProd, currentWeekLabel, valProd.weeklyValue);
-
-    recordedWeeks(rf).forEach(w => {
-      const rfH = rf.history?.find(h => h.date === w)?.value || 0;
-      updateKPIHistory(valProd, w, rfH);
-    });
-
-    copyFormulaSite(valProd, rf, 'site1');
-    copyFormulaSite(valProd, rf, 'site2');
-  }
-
-  // 5. Recalculate % déchet = Valeur déchet/Valeur produite
-  const valDechet = db.kpis.find(k => k.id === 'kpi-cost-valeur-dechet');
+  // 4. Recalculate % déchet = Poids de déchet / Poids consommé
+  const poidsDechet = db.kpis.find(k => k.id === 'kpi-cost-poids-dechet');
+  const poidsConsomme = db.kpis.find(k => k.id === 'kpi-cost-poids-consomme');
   const tauxDechet = db.kpis.find(k => k.id === 'kpi-cost-taux-dechet');
 
-  if (valDechet && valProd && tauxDechet && hasRecordedData(valDechet, valProd)) {
-    const vdW = valDechet.weeklyValue || 0;
-    const vpW = valProd.weeklyValue || 0;
-    tauxDechet.weeklyValue = vpW > 0 ? Number(((vdW / vpW) * 100).toFixed(2)) : 0;
+  if (poidsDechet && poidsConsomme && tauxDechet && hasRecordedData(poidsDechet, poidsConsomme)) {
+    const pdW = poidsDechet.weeklyValue || 0;
+    const pcW = poidsConsomme.weeklyValue || 0;
+    tauxDechet.weeklyValue = pcW > 0 ? Number(((pdW / pcW) * 100).toFixed(2)) : 0;
 
-    const vdD = valDechet.dailyValue || 0;
-    const vpD = valProd.dailyValue || 0;
-    tauxDechet.dailyValue = vpD > 0 ? Number(((vdD / vpD) * 100).toFixed(2)) : 0;
+    const pdD = poidsDechet.dailyValue || 0;
+    const pcD = poidsConsomme.dailyValue || 0;
+    tauxDechet.dailyValue = pcD > 0 ? Number(((pdD / pcD) * 100).toFixed(2)) : 0;
 
     tauxDechet.status = evaluateKPIStatus(tauxDechet.weeklyValue, tauxDechet.target, tauxDechet.name, tauxDechet.category);
     updateKPIHistory(tauxDechet, currentWeekLabel, tauxDechet.weeklyValue);
 
-    recordedWeeks(valDechet, valProd).forEach(w => {
-      const vdH = valDechet.history?.find(h => h.date === w)?.value || 0;
-      const vpH = valProd.history?.find(h => h.date === w)?.value || 0;
-      const valH = vpH > 0 ? (vdH / vpH) * 100 : 0;
+    recordedWeeks(poidsDechet, poidsConsomme).forEach(w => {
+      const pdH = poidsDechet.history?.find(h => h.date === w)?.value || 0;
+      const pcH = poidsConsomme.history?.find(h => h.date === w)?.value || 0;
+      const valH = pcH > 0 ? (pdH / pcH) * 100 : 0;
       updateKPIHistory(tauxDechet, w, Number(valH.toFixed(2)));
     });
 
-    recomputeFormulaSiteRatio(tauxDechet, valDechet, valProd, 'site1', 0, 2);
-    recomputeFormulaSiteRatio(tauxDechet, valDechet, valProd, 'site2', 0, 2);
+    recomputeFormulaSiteRatio(tauxDechet, poidsDechet, poidsConsomme, 'site1', 0, 2);
+    recomputeFormulaSiteRatio(tauxDechet, poidsDechet, poidsConsomme, 'site2', 0, 2);
   }
 }
 
@@ -444,6 +412,37 @@ function migrateUserAccounts(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// Retires "valeur produite" (kpi-cost-valeur-produite) and its role feeding % déchet, replacing
+// it with two directly-entered weight KPIs (poids de déchet / poids consommé) — % déchet is now
+// their ratio instead of valeur déchet / valeur produite. Idempotent: presence checks only.
+function migrateWasteKpis(data: DataStoreSchema): boolean {
+  let changed = false;
+  if (!data.kpis) return false;
+
+  const beforeLength = data.kpis.length;
+  data.kpis = data.kpis.filter((k: any) => k.id !== 'kpi-cost-valeur-produite') as typeof data.kpis;
+  if (data.kpis.length !== beforeLength) changed = true;
+
+  (['kpi-cost-poids-dechet', 'kpi-cost-poids-consomme'] as const).forEach(id => {
+    if (!data.kpis.find(k => k.id === id)) {
+      const seed = INITIAL_KPIS.find(k => k.id === id);
+      if (seed) {
+        data.kpis.push({ ...seed });
+        changed = true;
+      }
+    }
+  });
+
+  const tauxDechet = data.kpis.find((k: any) => k.id === 'kpi-cost-taux-dechet');
+  if (tauxDechet && tauxDechet.name !== '% déchet = Poids de déchet/Poids consommé') {
+    tauxDechet.name = '% déchet = Poids de déchet/Poids consommé';
+    tauxDechet.description = 'Taux de déchet calculé automatiquement par le rapport du poids de déchet sur le poids consommé.';
+    changed = true;
+  }
+
+  return changed;
+}
+
 async function readDB(): Promise<DataStoreSchema> {
   try {
     const data = await loadRaw<DataStoreSchema>();
@@ -494,6 +493,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateUserAccounts(data)) {
+        modified = true;
+      }
+
+      if (migrateWasteKpis(data)) {
         modified = true;
       }
 

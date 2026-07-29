@@ -22,7 +22,6 @@ export const FORMULA_KPI_IDS = [
   'kpi-qual-conformite',
   'kpi-prod-productivite',
   'kpi-cost-ratio',
-  'kpi-cost-valeur-produite',
   'kpi-cost-taux-dechet',
   'kpi-rh-presence',
   'kpi-sec-gemba'

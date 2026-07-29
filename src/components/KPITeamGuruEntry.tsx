@@ -363,23 +363,14 @@ export default function KPITeamGuruEntry({
       return { ...kpi, weeklyValue, dailyValue, status };
     }
 
-    if (kpi.id === 'kpi-cost-valeur-produite') {
-      const rfW = getLiveVal('kpi-cost-rf', 'weeklyValue');
-      const rfD = getLiveVal('kpi-cost-rf', 'dailyValue');
-      const weeklyValue = rfW;
-      const dailyValue = rfD;
-      const status = evaluateStatus(weeklyValue, kpi.target, kpi.name, kpi.category);
-      return { ...kpi, weeklyValue, dailyValue, status };
-    }
-
     if (kpi.id === 'kpi-cost-taux-dechet') {
-      const vdW = getLiveVal('kpi-cost-valeur-dechet', 'weeklyValue');
-      const vpW = getLiveVal('kpi-cost-valeur-produite', 'weeklyValue');
-      const weeklyValue = vpW > 0 ? Number(((vdW / vpW) * 100).toFixed(2)) : 0;
+      const pdW = getLiveVal('kpi-cost-poids-dechet', 'weeklyValue');
+      const pcW = getLiveVal('kpi-cost-poids-consomme', 'weeklyValue');
+      const weeklyValue = pcW > 0 ? Number(((pdW / pcW) * 100).toFixed(2)) : 0;
 
-      const vdD = getLiveVal('kpi-cost-valeur-dechet', 'dailyValue');
-      const vpD = getLiveVal('kpi-cost-valeur-produite', 'dailyValue');
-      const dailyValue = vpD > 0 ? Number(((vdD / vpD) * 100).toFixed(2)) : 0;
+      const pdD = getLiveVal('kpi-cost-poids-dechet', 'dailyValue');
+      const pcD = getLiveVal('kpi-cost-poids-consomme', 'dailyValue');
+      const dailyValue = pcD > 0 ? Number(((pdD / pcD) * 100).toFixed(2)) : 0;
 
       const status = evaluateStatus(weeklyValue, kpi.target, kpi.name, kpi.category);
       return { ...kpi, weeklyValue, dailyValue, status };

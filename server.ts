@@ -414,7 +414,8 @@ function migrateUserAccounts(data: DataStoreSchema): boolean {
 
 // Retires "valeur produite" (kpi-cost-valeur-produite) and its role feeding % déchet, replacing
 // it with two directly-entered weight KPIs (poids de déchet / poids consommé) — % déchet is now
-// their ratio instead of valeur déchet / valeur produite. Idempotent: presence checks only.
+// their ratio instead of valeur déchet / valeur produite. Idempotent: presence and position
+// checks only.
 function migrateWasteKpis(data: DataStoreSchema): boolean {
   let changed = false;
   if (!data.kpis) return false;
@@ -423,15 +424,32 @@ function migrateWasteKpis(data: DataStoreSchema): boolean {
   data.kpis = data.kpis.filter((k: any) => k.id !== 'kpi-cost-valeur-produite') as typeof data.kpis;
   if (data.kpis.length !== beforeLength) changed = true;
 
-  (['kpi-cost-poids-dechet', 'kpi-cost-poids-consomme'] as const).forEach(id => {
-    if (!data.kpis.find(k => k.id === id)) {
+  const poidsIds = ['kpi-cost-poids-dechet', 'kpi-cost-poids-consomme'];
+  const missing = poidsIds.filter(id => !data.kpis.find(k => k.id === id));
+  if (missing.length > 0) {
+    missing.forEach(id => {
       const seed = INITIAL_KPIS.find(k => k.id === id);
-      if (seed) {
-        data.kpis.push({ ...seed });
+      if (seed) data.kpis.push({ ...seed });
+    });
+    changed = true;
+  }
+
+  // Ensure they sit immediately before % déchet — an earlier version of this migration appended
+  // them to the end of the whole KPI list instead of inserting them next to it.
+  const tauxDechetIdx = data.kpis.findIndex((k: any) => k.id === 'kpi-cost-taux-dechet');
+  if (tauxDechetIdx !== -1) {
+    const precedingIds = data.kpis.slice(Math.max(0, tauxDechetIdx - poidsIds.length), tauxDechetIdx).map((k: any) => k.id);
+    const inPlace = poidsIds.every((id, i) => precedingIds[i] === id);
+    if (!inPlace) {
+      const extracted = poidsIds.map(id => data.kpis.find((k: any) => k.id === id)).filter(Boolean) as typeof data.kpis;
+      if (extracted.length === poidsIds.length) {
+        data.kpis = data.kpis.filter((k: any) => !poidsIds.includes(k.id)) as typeof data.kpis;
+        const insertAt = data.kpis.findIndex((k: any) => k.id === 'kpi-cost-taux-dechet');
+        data.kpis.splice(insertAt, 0, ...extracted);
         changed = true;
       }
     }
-  });
+  }
 
   const tauxDechet = data.kpis.find((k: any) => k.id === 'kpi-cost-taux-dechet');
   if (tauxDechet && tauxDechet.name !== '% déchet = Poids de déchet/Poids consommé') {

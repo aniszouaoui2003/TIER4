@@ -8,8 +8,8 @@
 // (full-base export, direct-save import). Kept independent of any component's live-edit state
 // so both call sites compute identical values from the same persisted KPI data.
 
-import { KPI, KPIStatus } from '../types';
-import { MONTH_WEEK_RANGES, CURRENT_WEEK } from './weekCalendar';
+import { KPI, KPIStatus } from '../types.js';
+import { MONTH_WEEK_RANGES, CURRENT_WEEK } from './weekCalendar.js';
 
 export type RowType = 'total' | 'site1' | 'site2';
 type HistoryEntry = { date: string; value: number };

@@ -16,17 +16,6 @@ type HistoryEntry = { date: string; value: number };
 
 export const ALL_WEEKS: number[] = Array.from({ length: 52 }, (_, i) => i + 1);
 
-// KPIs whose value is computed automatically from other KPIs or a tracker (Suivi Présence /
-// Suivi Gemba HSE) rather than entered directly — read-only in the grid and skipped on import.
-export const FORMULA_KPI_IDS = [
-  'kpi-qual-conformite',
-  'kpi-prod-productivite',
-  'kpi-cost-ratio',
-  'kpi-cost-taux-dechet',
-  'kpi-rh-presence',
-  'kpi-sec-gemba'
-];
-
 const isLowerBetterMetric = (kpiName: string, category: string): boolean => {
   const name = kpiName.toLowerCase();
   return (
@@ -64,9 +53,9 @@ export function rowTypesForKpi(kpi: KPI, siteView: RowType): RowType[] {
 }
 
 // A row is importable unless it's an auto-calculated KPI, or it's a Total row whose value is
-// always the live sum of Site 1 + Site 2 (so it has nothing of its own to overwrite).
-export function isRowEditable(kpi: KPI, rowType: RowType, formulaKpiIds: string[]): boolean {
-  if (formulaKpiIds.includes(kpi.id)) return false;
+// always derived from Site 1 + Site 2 (so it has nothing of its own to overwrite).
+export function isRowEditable(kpi: KPI, rowType: RowType): boolean {
+  if (kpi.isCalculated) return false;
   const bothSites = !!(kpi.site1Checked && kpi.site2Checked);
   return !(rowType === 'total' && bothSites);
 }
@@ -79,36 +68,44 @@ function monthlyField(rowType: RowType): 'monthlyOverrides' | 'site1MonthlyOverr
   return rowType === 'site1' ? 'site1MonthlyOverrides' : rowType === 'site2' ? 'site2MonthlyOverrides' : 'monthlyOverrides';
 }
 
-// Weekly value for one row; the Total row of a site-tracked KPI is always the live sum of its
-// sites (it is never read from `history` directly), matching how the grid renders it. Formula
-// KPIs are excluded from that sum — their Total is its own blended ratio computed server-side
-// (e.g. conformité = (PC-(NC1*2+NC2))/PC), never the sum of two percentages.
+// Combines whichever of Site 1 / Site 2 have a value into the Total, per the KPI's own
+// siteAggregation setting ('sum' by default, preserving pre-existing behavior). Averaging divides
+// by however many sites actually reported, not always 2 — a week with only one site entered
+// isn't "half" of anything. Exported so live-edit preview logic (KPITeamGuruEntry.tsx) can apply
+// the exact same rule to in-progress edits that haven't been saved yet.
+export function aggregateSites(v1: number | null | undefined, v2: number | null | undefined, aggregation: 'sum' | 'average' | undefined): number | null {
+  const vals = [v1, v2].filter((v): v is number => v !== null && v !== undefined);
+  if (vals.length === 0) return null;
+  const sum = vals.reduce((a, b) => a + b, 0);
+  return Number((aggregation === 'average' ? sum / vals.length : sum).toFixed(2));
+}
+
+// Weekly value for one row; the Total row of a site-tracked KPI is always derived live from its
+// sites via aggregateSites (never read from `history` directly) — including calculated KPIs,
+// whose site1History/site2History already hold their own formula-evaluated results.
 export function getWeeklyRowValue(kpi: KPI, rowType: RowType, week: number): number | null {
   const label = `Semaine ${week}`;
-  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked) && !FORMULA_KPI_IDS.includes(kpi.id);
+  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
   if (rowType === 'total' && siteTracked) {
     const h1 = kpi.site1Checked ? kpi.site1History?.find(h => h.date === label) : undefined;
     const h2 = kpi.site2Checked ? kpi.site2History?.find(h => h.date === label) : undefined;
-    if (!h1 && !h2) return null;
-    return Number(((h1?.value ?? 0) + (h2?.value ?? 0)).toFixed(2));
+    return aggregateSites(h1?.value, h2?.value, kpi.siteAggregation);
   }
   const found = (kpi[historyField(rowType)] as HistoryEntry[] | undefined)?.find(h => h.date === label);
   return found ? Number(found.value) : null;
 }
 
 // Effective monthly value for one row: a manual override wins, otherwise the average of the
-// weeks reported so far in that month. Total is always the live sum of its sites' effective
-// monthly values (so it inherits their overrides too) — except for formula KPIs, whose Total
-// is instead the average of its own weekly blended-ratio history (see getWeeklyRowValue).
+// weeks reported so far in that month. Total is always derived from its sites' effective monthly
+// values via aggregateSites (so it inherits their overrides too).
 export function getMonthlyRowValue(kpi: KPI, rowType: RowType, monthIndex: number): number | null {
   const month = MONTH_WEEK_RANGES[monthIndex];
-  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked) && !FORMULA_KPI_IDS.includes(kpi.id);
+  const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
 
   if (rowType === 'total' && siteTracked) {
     const v1 = kpi.site1Checked ? getMonthlyRowValue(kpi, 'site1', monthIndex) : null;
     const v2 = kpi.site2Checked ? getMonthlyRowValue(kpi, 'site2', monthIndex) : null;
-    if (v1 === null && v2 === null) return null;
-    return Number(((v1 ?? 0) + (v2 ?? 0)).toFixed(2));
+    return aggregateSites(v1, v2, kpi.siteAggregation);
   }
 
   const override = (kpi[monthlyField(rowType)] as HistoryEntry[] | undefined)?.find(e => e.date === month.name);
@@ -195,8 +192,7 @@ export interface ExportBuildResult {
 export function buildExportSheet(
   kpisToExport: KPI[],
   periodMode: 'monthly' | 'weekly',
-  siteView: RowType,
-  formulaKpiIds: string[]
+  siteView: RowType
 ): ExportBuildResult {
   const periodHeaders = periodMode === 'monthly'
     ? MONTH_WEEK_RANGES.map(m => m.name)
@@ -207,7 +203,7 @@ export function buildExportSheet(
   const rows: (string | number)[][] = [];
   kpisToExport.forEach(kpi => {
     rowTypesForKpi(kpi, siteView).forEach(rowType => {
-      const editable = isRowEditable(kpi, rowType, formulaKpiIds);
+      const editable = isRowEditable(kpi, rowType);
       const periodValues = periodMode === 'monthly'
         ? MONTH_WEEK_RANGES.map((_, idx) => getMonthlyRowValue(kpi, rowType, idx) ?? '')
         : ALL_WEEKS.map(w => getWeeklyRowValue(kpi, rowType, w) ?? '');
@@ -240,7 +236,6 @@ export interface ImportParseResult {
 export function parseImportRows(
   parsed: { headers: string[]; rows: string[][] },
   kpis: KPI[],
-  formulaKpiIds: string[],
   existingEdits: Record<string, Partial<KPI>> = {}
 ): ImportParseResult {
   const { headers, rows } = parsed;
@@ -268,8 +263,8 @@ export function parseImportRows(
     if (!kpi) { skipped.push(`${kpiId || '(vide)'} : KPI introuvable`); return; }
 
     const rowType = siteLabelToRowType(siteLabel);
-    if (!isRowEditable(kpi, rowType, formulaKpiIds)) {
-      const reason = formulaKpiIds.includes(kpi.id) ? 'calculé automatiquement' : 'Total calculé depuis Site 1 + Site 2';
+    if (!isRowEditable(kpi, rowType)) {
+      const reason = kpi.isCalculated ? 'calculé automatiquement' : 'Total calculé depuis Site 1 + Site 2';
       skipped.push(`${kpi.name}${rowType !== 'total' ? ` (${SITE_LABEL[rowType]})` : ''} : ${reason}, ignoré`);
       return;
     }

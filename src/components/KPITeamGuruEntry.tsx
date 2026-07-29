@@ -27,7 +27,8 @@ import {
 import { KPI, KPIStatus, User } from '../types';
 import { CURRENT_YEAR, CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
 import { downloadWorkbook, readWorkbook } from '../utils/excelIO';
-import { buildExportSheet, parseImportRows, FORMULA_KPI_IDS } from '../utils/kpiExcelData';
+import { buildExportSheet, parseImportRows, aggregateSites } from '../utils/kpiExcelData';
+import { evaluateFormula } from '../utils/formulaEngine';
 
 interface KPITeamGuruEntryProps {
   kpis: KPI[];
@@ -216,20 +217,18 @@ export default function KPITeamGuruEntry({
 
   // Resolves the value shown on a given grid row (total / site1 / site2) for a specific week.
   // The "total" row of a site-tracked KPI is never read from `history` directly — it's always
-  // the live sum of its site rows, so the two can never silently drift apart. That sum-of-sites
-  // rule only holds for count/quantity KPIs, though: a formula KPI whose value is itself a
-  // percentage (conformité, productivité, % recette, % déchet) has its own separately computed
-  // Total blended from the underlying totals server-side — summing two percentages together
-  // (e.g. 92% + 91%) would be meaningless, so those read `history` directly like a non-tracked KPI.
+  // derived live from its site rows via aggregateSites (sum or average per k.siteAggregation),
+  // so the two can never silently drift apart. This applies uniformly to every site-tracked KPI,
+  // including calculated ones — their site1History/site2History already hold the formula's own
+  // per-site results (see getLiveKpi), so combining them the same way is exactly right.
   const getRowWeekValue = (k: KPI, rowType: RowType, week: number): number | null => {
-    const siteTracked = !!(k.site1Checked || k.site2Checked) && !FORMULA_KPI_IDS.includes(k.id);
+    const siteTracked = !!(k.site1Checked || k.site2Checked);
     if (rowType === 'total' && siteTracked) {
       const has1 = k.site1Checked && hasWeekData(k.id, week, 'site1History');
       const has2 = k.site2Checked && hasWeekData(k.id, week, 'site2History');
-      if (!has1 && !has2) return null;
-      const v1 = has1 ? getLiveHistoryVal(k.id, `Semaine ${week}`, 'site1History') : 0;
-      const v2 = has2 ? getLiveHistoryVal(k.id, `Semaine ${week}`, 'site2History') : 0;
-      return Number((v1 + v2).toFixed(2));
+      const v1 = has1 ? getLiveHistoryVal(k.id, `Semaine ${week}`, 'site1History') : undefined;
+      const v2 = has2 ? getLiveHistoryVal(k.id, `Semaine ${week}`, 'site2History') : undefined;
+      return aggregateSites(v1, v2, k.siteAggregation);
     }
     const field: HistoryField = rowType === 'site1' ? 'site1History' : rowType === 'site2' ? 'site2History' : 'history';
     if (!hasWeekData(k.id, week, field)) return null;
@@ -277,19 +276,18 @@ export default function KPITeamGuruEntry({
 
   // The value actually shown on a row's monthly cell: a manual override when one exists,
   // otherwise the computed weekly rollup. The Total row of a site-tracked KPI is always the live
-  // sum of its sites' effective monthly values (so it inherits overrides from Site 1 / Site 2) —
-  // except for formula KPIs whose value is itself a percentage, where summing sites would be
-  // meaningless; see getRowWeekValue.
+  // aggregate (sum or average, per k.siteAggregation) of its sites' effective monthly values
+  // (so it inherits overrides from Site 1 / Site 2) — applied uniformly, including formula KPIs.
   const getEffectiveMonthValue = (k: KPI, rowType: RowType, monthIndex: number): { value: number | null; isOverride: boolean } => {
     const m = MONTH_WEEK_RANGES[monthIndex];
-    const siteTracked = !!(k.site1Checked || k.site2Checked) && !FORMULA_KPI_IDS.includes(k.id);
+    const siteTracked = !!(k.site1Checked || k.site2Checked);
 
     if (rowType === 'total' && siteTracked) {
       const r1 = k.site1Checked ? getEffectiveMonthValue(k, 'site1', monthIndex) : null;
       const r2 = k.site2Checked ? getEffectiveMonthValue(k, 'site2', monthIndex) : null;
       if ((r1?.value ?? null) === null && (r2?.value ?? null) === null) return { value: null, isOverride: false };
-      const sum = (r1?.value ?? 0) + (r2?.value ?? 0);
-      return { value: Number(sum.toFixed(2)), isOverride: !!(r1?.isOverride || r2?.isOverride) };
+      const value = aggregateSites(r1?.value ?? undefined, r2?.value ?? undefined, k.siteAggregation);
+      return { value, isOverride: !!(r1?.isOverride || r2?.isOverride) };
     }
 
     const overrideField: MonthlyField = rowType === 'site1' ? 'site1MonthlyOverrides' : rowType === 'site2' ? 'site2MonthlyOverrides' : 'monthlyOverrides';
@@ -320,57 +318,24 @@ export default function KPITeamGuruEntry({
       : <ArrowDown className="w-2.5 h-2.5 text-rose-500" />;
   };
 
-  // Get live value of any field, looking at local edits first, then actual database values
+  // Get live value of any field, looking at local edits first, then actual database values.
+  // Formula KPIs (isCalculated + formula + formulaInputs) are evaluated live from their input
+  // KPIs' current values, so the preview matches what the server will compute on save. When the
+  // formula can't be evaluated (e.g. division by zero, an input not yet entered), the KPI's last
+  // known value is kept rather than guessing a fallback number.
   const getLiveKPI = (kpi: KPI): KPI => {
-    if (kpi.id === 'kpi-qual-conformite') {
-      const pcW = getLiveVal('kpi-qual-pc', 'weeklyValue');
-      const nc1W = getLiveVal('kpi-qual-nc1', 'weeklyValue');
-      const nc2W = getLiveVal('kpi-qual-nc2', 'weeklyValue');
-      const weeklyValue = pcW > 0 ? Number(Math.max(0, Math.min(100, ((pcW - (nc1W * 2 + nc2W)) / pcW) * 100)).toFixed(1)) : 100;
-
-      const pcD = getLiveVal('kpi-qual-pc', 'dailyValue');
-      const nc1D = getLiveVal('kpi-qual-nc1', 'dailyValue');
-      const nc2D = getLiveVal('kpi-qual-nc2', 'dailyValue');
-      const dailyValue = pcD > 0 ? Number(Math.max(0, Math.min(100, ((pcD - (nc1D * 2 + nc2D)) / pcD) * 100)).toFixed(1)) : 100;
-
-      const status = evaluateStatus(weeklyValue, kpi.target, kpi.name, kpi.category);
-      return { ...kpi, weeklyValue, dailyValue, status };
-    }
-
-    if (kpi.id === 'kpi-prod-productivite') {
-      const qfW = getLiveVal('kpi-prod-qf', 'weeklyValue');
-      const qpW = getLiveVal('kpi-prod-qp', 'weeklyValue');
-      const weeklyValue = qpW > 0 ? Number(((qfW / qpW) * 100).toFixed(1)) : 100;
-
-      const qfD = getLiveVal('kpi-prod-qf', 'dailyValue');
-      const qpD = getLiveVal('kpi-prod-qp', 'dailyValue');
-      const dailyValue = qpD > 0 ? Number(((qfD / qpD) * 100).toFixed(1)) : 100;
-
-      const status = evaluateStatus(weeklyValue, kpi.target, kpi.name, kpi.category);
-      return { ...kpi, weeklyValue, dailyValue, status };
-    }
-
-    if (kpi.id === 'kpi-cost-ratio') {
-      const rfW = getLiveVal('kpi-cost-rf', 'weeklyValue');
-      const rpW = getLiveVal('kpi-cost-rp', 'weeklyValue');
-      const weeklyValue = rpW > 0 ? Number(((rfW / rpW) * 100).toFixed(1)) : 100;
-
-      const rfD = getLiveVal('kpi-cost-rf', 'dailyValue');
-      const rpD = getLiveVal('kpi-cost-rp', 'dailyValue');
-      const dailyValue = rpD > 0 ? Number(((rfD / rpD) * 100).toFixed(1)) : 100;
-
-      const status = evaluateStatus(weeklyValue, kpi.target, kpi.name, kpi.category);
-      return { ...kpi, weeklyValue, dailyValue, status };
-    }
-
-    if (kpi.id === 'kpi-cost-taux-dechet') {
-      const pdW = getLiveVal('kpi-cost-poids-dechet', 'weeklyValue');
-      const pcW = getLiveVal('kpi-cost-poids-consomme', 'weeklyValue');
-      const weeklyValue = pcW > 0 ? Number(((pdW / pcW) * 100).toFixed(2)) : 0;
-
-      const pdD = getLiveVal('kpi-cost-poids-dechet', 'dailyValue');
-      const pcD = getLiveVal('kpi-cost-poids-consomme', 'dailyValue');
-      const dailyValue = pcD > 0 ? Number(((pdD / pcD) * 100).toFixed(2)) : 0;
+    if (kpi.isCalculated && kpi.formula && kpi.formulaInputs) {
+      const buildVars = (field: 'weeklyValue' | 'dailyValue') => {
+        const vars: Record<string, number> = {};
+        for (const [alias, inputId] of Object.entries(kpi.formulaInputs!)) {
+          vars[alias] = getLiveVal(inputId, field);
+        }
+        return vars;
+      };
+      const weeklyRaw = evaluateFormula(kpi.formula, buildVars('weeklyValue'));
+      const dailyRaw = evaluateFormula(kpi.formula, buildVars('dailyValue'));
+      const weeklyValue = weeklyRaw !== null ? Number(weeklyRaw.toFixed(2)) : kpi.weeklyValue;
+      const dailyValue = dailyRaw !== null ? Number(dailyRaw.toFixed(2)) : kpi.dailyValue;
 
       const status = evaluateStatus(weeklyValue, kpi.target, kpi.name, kpi.category);
       return { ...kpi, weeklyValue, dailyValue, status };
@@ -444,11 +409,12 @@ export default function KPITeamGuruEntry({
     else siteHistory.push({ date, value: numValue });
     (currentEdits as any)[field] = siteHistory;
 
-    // Recompute the combined total for this date from both sites' live values
+    // Recompute the combined total for this date from both sites' live values, respecting
+    // this KPI's configured aggregation (sum or average of the two sites)
     const otherHistory = (((currentEdits as any)[otherField] as { date: string; value: number }[] | undefined) || (kpi as any)[otherField] || []);
     const otherHasSite = site === 'site1' ? kpi.site2Checked : kpi.site1Checked;
-    const otherVal = otherHasSite ? (otherHistory.find((h: any) => h.date === date)?.value ?? 0) : 0;
-    const totalForDate = Number((numValue + otherVal).toFixed(2));
+    const otherVal: number | undefined = otherHasSite ? otherHistory.find((h: any) => h.date === date)?.value : undefined;
+    const totalForDate = aggregateSites(numValue, otherVal, kpi.siteAggregation) ?? numValue;
 
     const totalHistory = [...(currentEdits.history || kpi.history)];
     const tIdx = totalHistory.findIndex(h => h.date === date);
@@ -547,7 +513,7 @@ export default function KPITeamGuruEntry({
   const handleExportExcel = async () => {
     const periodLabel = periodMode === 'monthly' ? 'Mensuel' : 'Hebdomadaire';
     const siteLabel = siteView === 'total' ? 'Total Site' : siteView === 'site1' ? 'Site 1' : 'Site 2';
-    const { headers, rows } = buildExportSheet(filteredKPIs, periodMode, siteView, FORMULA_KPI_IDS);
+    const { headers, rows } = buildExportSheet(filteredKPIs, periodMode, siteView);
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -578,7 +544,7 @@ export default function KPITeamGuruEntry({
     setImporting(true);
     try {
       const parsed = await readWorkbook(file);
-      const { updates, appliedCount, skipped } = parseImportRows(parsed, kpis, FORMULA_KPI_IDS, localEdits);
+      const { updates, appliedCount, skipped } = parseImportRows(parsed, kpis, localEdits);
 
       if (appliedCount > 0) {
         setLocalEdits(prev => ({ ...prev, ...updates }));
@@ -1027,7 +993,7 @@ export default function KPITeamGuruEntry({
           const rows = filteredKPIs.flatMap(k => {
             const liveK = getLiveKPI(k);
             const isModified = !!localEdits[k.id];
-            const isFormula = FORMULA_KPI_IDS.includes(k.id);
+            const isFormula = !!k.isCalculated;
             const isLowerBetterRow = isLowerBetterMetric(k.name, k.category);
             const bothSites = !!(k.site1Checked && k.site2Checked);
 

@@ -11,6 +11,8 @@ import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
 import { loadRaw, persistRaw } from './src/data/store.js';
 import { MONTH_WEEK_RANGES, CURRENT_WEEK, getMonthIndexForWeek } from './src/utils/weekCalendar.js';
+import { aggregateSites } from './src/utils/kpiExcelData.js';
+import { evaluateFormula, validateFormula } from './src/utils/formulaEngine.js';
 
 // Load environment variables
 dotenv.config();
@@ -113,9 +115,19 @@ function updateKPIHistory(kpi: any, week: string, value: number) {
 
 // A formula KPI has nothing to compute from until at least one of its raw inputs has a
 // recorded value or history entry — until then, leave it untouched instead of manufacturing
-// a fallback "100%" (or "0%") reading out of an empty dataset.
+// a fallback "100%" (or "0%") reading out of an empty dataset. Inputs that are themselves
+// site-tracked (the normal case: PC/NC1/NC2, QF/QP, etc.) never populate their own top-level
+// weeklyValue/history — their data lives in site1Value/site2Value/site1History/site2History —
+// so those fields must be checked too, or every site-tracked formula input reads as "empty".
 function hasRecordedData(...kpis: (typeof INITIAL_KPIS[number] | undefined)[]): boolean {
-  return kpis.some(k => k && (k.weeklyValue !== 0 || (k.history && k.history.length > 0)));
+  return kpis.some(k => k && (
+    k.weeklyValue !== 0 ||
+    (k.history && k.history.length > 0) ||
+    (k as any).site1Value ||
+    (k as any).site2Value ||
+    ((k as any).site1History && (k as any).site1History.length > 0) ||
+    ((k as any).site2History && (k as any).site2History.length > 0)
+  ));
 }
 
 // Only backfill weeks the raw inputs actually recorded — never a fixed legacy week range.
@@ -128,208 +140,102 @@ function recordedWeeks(...kpis: (typeof INITIAL_KPIS[number] | undefined)[]): st
 type KpiRecord = typeof INITIAL_KPIS[number];
 type HistoryEntry = { date: string; value: number };
 
-// Extends a ratio-based formula (numerator/denominator*100, already computed for the Total row)
-// to Site 1 / Site 2, using each input's own site1Value/site1History (or site2 equivalents).
-// Skipped per-site when either input isn't tracked for that site, or neither has any recorded
-// data there — the Total-row computation above already guards the KPI as a whole, but a site can
-// independently have nothing yet (e.g. Site 2 not entered this week while Site 1 has).
-function recomputeFormulaSiteRatio(
-  target: KpiRecord,
-  numerator: KpiRecord | undefined,
-  denominator: KpiRecord | undefined,
-  site: 'site1' | 'site2',
-  whenEmptyDenominator: number,
-  decimals: number
-) {
-  if (!numerator || !denominator) return;
-  const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
-  if (!numerator[checkedField] || !denominator[checkedField]) return;
+// Evaluates one calculated KPI's formula against its mapped input KPIs — for the live current-
+// week/day snapshot, every recorded historical week, and (when the KPI is itself site-tracked)
+// independently for Site 1 and Site 2. A missing input (deleted KPI) or a formula the engine
+// can't yet evaluate (missing/zero-divisor variable for that period) is left untouched rather
+// than manufacturing a fallback reading — same "no data = unknown, not 0" philosophy as the rest
+// of the app's KPI logic.
+function computeCalculatedKpi(db: DataStoreSchema, kpi: KpiRecord & { formula: string; formulaInputs: Record<string, string> }) {
+  const aliases = Object.keys(kpi.formulaInputs);
+  const inputs: Record<string, KpiRecord> = {};
+  for (const alias of aliases) {
+    const input = db.kpis.find(k => k.id === kpi.formulaInputs[alias]);
+    if (!input) return; // a mapped input KPI no longer exists — can't evaluate
+    inputs[alias] = input;
+  }
+  const inputList = Object.values(inputs);
+  if (!hasRecordedData(...inputList)) return;
 
-  const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
-  const historyField = site === 'site1' ? 'site1History' : 'site2History';
-  const numHist = (numerator as any)[historyField] as HistoryEntry[] | undefined;
-  const denHist = (denominator as any)[historyField] as HistoryEntry[] | undefined;
+  const currentWeekLabel = `Semaine ${CURRENT_WEEK}`;
+  const isSiteTracked = !!(kpi.site1Checked || kpi.site2Checked);
 
-  const hasData = ((numerator as any)[valueField] || 0) !== 0 || (numHist && numHist.length > 0) ||
-                   ((denominator as any)[valueField] || 0) !== 0 || (denHist && denHist.length > 0);
-  if (!hasData) return;
+  // Daily value has no per-site breakdown in this schema regardless of site tracking — always
+  // computed straight from each input's own dailyValue.
+  const dailyVars: Record<string, number> = {};
+  aliases.forEach(a => { dailyVars[a] = inputs[a].dailyValue || 0; });
+  const dailyVal = evaluateFormula(kpi.formula, dailyVars);
+  if (dailyVal !== null) kpi.dailyValue = Number(dailyVal.toFixed(2));
 
-  const numW = (numerator as any)[valueField] || 0;
-  const denW = (denominator as any)[valueField] || 0;
-  (target as any)[valueField] = denW > 0 ? Number(((numW / denW) * 100).toFixed(decimals)) : whenEmptyDenominator;
+  if (!isSiteTracked) {
+    const weeklyVars: Record<string, number> = {};
+    aliases.forEach(a => { weeklyVars[a] = inputs[a].weeklyValue || 0; });
+    const weeklyVal = evaluateFormula(kpi.formula, weeklyVars);
+    if (weeklyVal !== null) {
+      kpi.weeklyValue = Number(weeklyVal.toFixed(2));
+      updateKPIHistory(kpi, currentWeekLabel, kpi.weeklyValue);
+    }
 
-  if (!(target as any)[historyField]) (target as any)[historyField] = [];
-  const targetHist = (target as any)[historyField] as HistoryEntry[];
+    recordedWeeks(...inputList).forEach(w => {
+      const vars: Record<string, number> = {};
+      aliases.forEach(a => { vars[a] = inputs[a].history?.find(h => h.date === w)?.value ?? 0; });
+      const val = evaluateFormula(kpi.formula, vars);
+      if (val !== null) updateKPIHistory(kpi, w, Number(val.toFixed(2)));
+    });
 
-  const weeks = new Set<string>();
-  numHist?.forEach(h => weeks.add(h.date));
-  denHist?.forEach(h => weeks.add(h.date));
-  weeks.forEach(w => {
-    const nH = numHist?.find(h => h.date === w)?.value || 0;
-    const dH = denHist?.find(h => h.date === w)?.value || 0;
-    const vH = dH > 0 ? Number(((nH / dH) * 100).toFixed(decimals)) : whenEmptyDenominator;
-    const idx = targetHist.findIndex(h => h.date === w);
-    if (idx !== -1) targetHist[idx].value = vH; else targetHist.push({ date: w, value: vH });
+    kpi.status = evaluateKPIStatus(kpi.weeklyValue, kpi.target, kpi.name, kpi.category);
+    return;
+  }
+
+  // Site-tracked: evaluate the formula independently per site (each input's own site1/site2
+  // figures), then the Total is aggregateSites(site1, site2) per kpi.siteAggregation — never a
+  // separate formula evaluation on combined inputs, so it always agrees with what Saisie KPIs /
+  // Indicateurs Métiers compute for the same Total row.
+  (['site1', 'site2'] as const).forEach(site => {
+    const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
+    if (!(kpi as any)[checkedField]) return;
+    const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
+    const historyField = site === 'site1' ? 'site1History' : 'site2History';
+
+    const siteHasData = inputList.some(i => ((i as any)[valueField] || 0) !== 0 || (((i as any)[historyField] as HistoryEntry[] | undefined)?.length || 0) > 0);
+    if (!siteHasData) return;
+
+    const siteVars: Record<string, number> = {};
+    aliases.forEach(a => { siteVars[a] = (inputs[a] as any)[valueField] || 0; });
+    const siteVal = evaluateFormula(kpi.formula, siteVars);
+    if (siteVal !== null) (kpi as any)[valueField] = Number(siteVal.toFixed(2));
+
+    if (!(kpi as any)[historyField]) (kpi as any)[historyField] = [];
+    const targetHist = (kpi as any)[historyField] as HistoryEntry[];
+    const weeks = new Set<string>();
+    inputList.forEach(i => ((i as any)[historyField] as HistoryEntry[] | undefined)?.forEach(h => weeks.add(h.date)));
+    weeks.forEach(w => {
+      const vars: Record<string, number> = {};
+      aliases.forEach(a => { vars[a] = ((inputs[a] as any)[historyField] as HistoryEntry[] | undefined)?.find(h => h.date === w)?.value ?? 0; });
+      const val = evaluateFormula(kpi.formula, vars);
+      if (val === null) return;
+      const rounded = Number(val.toFixed(2));
+      const idx = targetHist.findIndex(h => h.date === w);
+      if (idx !== -1) targetHist[idx].value = rounded; else targetHist.push({ date: w, value: rounded });
+    });
   });
+
+  const totalNow = aggregateSites(
+    kpi.site1Checked ? (kpi as any).site1Value : undefined,
+    kpi.site2Checked ? (kpi as any).site2Value : undefined,
+    kpi.siteAggregation
+  );
+  if (totalNow !== null) kpi.weeklyValue = totalNow;
+  kpi.status = evaluateKPIStatus(kpi.weeklyValue, kpi.target, kpi.name, kpi.category);
 }
 
 function recalculateAllFormulas(db: DataStoreSchema) {
   if (!db.kpis) return;
-
-  const currentWeekLabel = `Semaine ${CURRENT_WEEK}`;
-
-  // 1. Recalculate % de conformité = (PC - (NC1 * 2 + NC2)) / PC * 100
-  const pc = db.kpis.find(k => k.id === 'kpi-qual-pc');
-  const nc1 = db.kpis.find(k => k.id === 'kpi-qual-nc1');
-  const nc2 = db.kpis.find(k => k.id === 'kpi-qual-nc2');
-  const conf = db.kpis.find(k => k.id === 'kpi-qual-conformite');
-
-  if (conf && hasRecordedData(pc, nc1, nc2)) {
-    const pcW = pc?.weeklyValue || 0;
-    const nc1W = nc1?.weeklyValue || 0;
-    const nc2W = nc2?.weeklyValue || 0;
-    const valW = pcW > 0 ? ((pcW - (nc1W * 2 + nc2W)) / pcW) * 100 : 100;
-    conf.weeklyValue = Number(Math.max(0, Math.min(100, valW)).toFixed(1));
-
-    const pcD = pc?.dailyValue || 0;
-    const nc1D = nc1?.dailyValue || 0;
-    const nc2D = nc2?.dailyValue || 0;
-    const valD = pcD > 0 ? ((pcD - (nc1D * 2 + nc2D)) / pcD) * 100 : 100;
-    conf.dailyValue = Number(Math.max(0, Math.min(100, valD)).toFixed(1));
-
-    conf.status = evaluateKPIStatus(conf.weeklyValue, conf.target, conf.name, conf.category);
-    updateKPIHistory(conf, currentWeekLabel, conf.weeklyValue);
-
-    recordedWeeks(pc, nc1, nc2).forEach(w => {
-      const pcH = pc?.history?.find(h => h.date === w)?.value || 0;
-      const nc1H = nc1?.history?.find(h => h.date === w)?.value || 0;
-      const nc2H = nc2?.history?.find(h => h.date === w)?.value || 0;
-      const valH = pcH > 0 ? ((pcH - (nc1H * 2 + nc2H)) / pcH) * 100 : 100;
-      updateKPIHistory(conf, w, Number(Math.max(0, Math.min(100, valH)).toFixed(1)));
-    });
-
-    // Site 1 / Site 2 — same formula, scoped to each site's own PC/NC1/NC2 (not a simple ratio,
-    // so computed inline rather than via recomputeFormulaSiteRatio).
-    (['site1', 'site2'] as const).forEach(site => {
-      const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
-      if (!pc?.[checkedField] || !nc1?.[checkedField] || !nc2?.[checkedField]) return;
-      const valueField = site === 'site1' ? 'site1Value' : 'site2Value';
-      const historyField = site === 'site1' ? 'site1History' : 'site2History';
-      const pcHist = (pc as any)[historyField] as HistoryEntry[] | undefined;
-      const nc1Hist = (nc1 as any)[historyField] as HistoryEntry[] | undefined;
-      const nc2Hist = (nc2 as any)[historyField] as HistoryEntry[] | undefined;
-      const hasData = ((pc as any)[valueField] || 0) !== 0 || (pcHist && pcHist.length > 0) ||
-                       ((nc1 as any)[valueField] || 0) !== 0 || (nc1Hist && nc1Hist.length > 0) ||
-                       ((nc2 as any)[valueField] || 0) !== 0 || (nc2Hist && nc2Hist.length > 0);
-      if (!hasData) return;
-
-      const pcS = (pc as any)[valueField] || 0;
-      const nc1S = (nc1 as any)[valueField] || 0;
-      const nc2S = (nc2 as any)[valueField] || 0;
-      const valS = pcS > 0 ? ((pcS - (nc1S * 2 + nc2S)) / pcS) * 100 : 100;
-      (conf as any)[valueField] = Number(Math.max(0, Math.min(100, valS)).toFixed(1));
-
-      if (!(conf as any)[historyField]) (conf as any)[historyField] = [];
-      const confHist = (conf as any)[historyField] as HistoryEntry[];
-      const weeks = new Set<string>();
-      pcHist?.forEach(h => weeks.add(h.date));
-      nc1Hist?.forEach(h => weeks.add(h.date));
-      nc2Hist?.forEach(h => weeks.add(h.date));
-      weeks.forEach(w => {
-        const pcH = pcHist?.find(h => h.date === w)?.value || 0;
-        const nc1H = nc1Hist?.find(h => h.date === w)?.value || 0;
-        const nc2H = nc2Hist?.find(h => h.date === w)?.value || 0;
-        const valH = pcH > 0 ? ((pcH - (nc1H * 2 + nc2H)) / pcH) * 100 : 100;
-        const clamped = Number(Math.max(0, Math.min(100, valH)).toFixed(1));
-        const idx = confHist.findIndex(h => h.date === w);
-        if (idx !== -1) confHist[idx].value = clamped; else confHist.push({ date: w, value: clamped });
-      });
-    });
-  }
-
-  // 2. Recalculate % de productivité = (QF / QP) * 100
-  const qf = db.kpis.find(k => k.id === 'kpi-prod-qf');
-  const qp = db.kpis.find(k => k.id === 'kpi-prod-qp');
-  const prod = db.kpis.find(k => k.id === 'kpi-prod-productivite');
-
-  if (prod && hasRecordedData(qf, qp)) {
-    const qfW = qf?.weeklyValue || 0;
-    const qpW = qp?.weeklyValue || 0;
-    prod.weeklyValue = qpW > 0 ? Number(((qfW / qpW) * 100).toFixed(1)) : 100;
-
-    const qfD = qf?.dailyValue || 0;
-    const qpD = qp?.dailyValue || 0;
-    prod.dailyValue = qpD > 0 ? Number(((qfD / qpD) * 100).toFixed(1)) : 100;
-
-    prod.status = evaluateKPIStatus(prod.weeklyValue, prod.target, prod.name, prod.category);
-    updateKPIHistory(prod, currentWeekLabel, prod.weeklyValue);
-
-    recordedWeeks(qf, qp).forEach(w => {
-      const qfH = qf?.history?.find(h => h.date === w)?.value || 0;
-      const qpH = qp?.history?.find(h => h.date === w)?.value || 0;
-      const valH = qpH > 0 ? (qfH / qpH) * 100 : 100;
-      updateKPIHistory(prod, w, Number(valH.toFixed(1)));
-    });
-
-    recomputeFormulaSiteRatio(prod, qf, qp, 'site1', 100, 1);
-    recomputeFormulaSiteRatio(prod, qf, qp, 'site2', 100, 1);
-  }
-
-  // 3. Recalculate % recette = RF/RP
-  const rf = db.kpis.find(k => k.id === 'kpi-cost-rf');
-  const rp = db.kpis.find(k => k.id === 'kpi-cost-rp');
-  const ratio = db.kpis.find(k => k.id === 'kpi-cost-ratio');
-
-  if (ratio && hasRecordedData(rf, rp)) {
-    const rfW = rf?.weeklyValue || 0;
-    const rpW = rp?.weeklyValue || 0;
-    ratio.weeklyValue = rpW > 0 ? Number(((rfW / rpW) * 100).toFixed(1)) : 100;
-
-    const rfD = rf?.dailyValue || 0;
-    const rpD = rp?.dailyValue || 0;
-    ratio.dailyValue = rpD > 0 ? Number(((rfD / rpD) * 100).toFixed(1)) : 100;
-
-    ratio.status = evaluateKPIStatus(ratio.weeklyValue, ratio.target, ratio.name, ratio.category);
-    updateKPIHistory(ratio, currentWeekLabel, ratio.weeklyValue);
-
-    recordedWeeks(rf, rp).forEach(w => {
-      const rfH = rf?.history?.find(h => h.date === w)?.value || 0;
-      const rpH = rp?.history?.find(h => h.date === w)?.value || 0;
-      const valH = rpH > 0 ? (rfH / rpH) * 100 : 100;
-      updateKPIHistory(ratio, w, Number(valH.toFixed(1)));
-    });
-
-    recomputeFormulaSiteRatio(ratio, rf, rp, 'site1', 100, 1);
-    recomputeFormulaSiteRatio(ratio, rf, rp, 'site2', 100, 1);
-  }
-
-  // 4. Recalculate % déchet = Poids de déchet / Poids consommé
-  const poidsDechet = db.kpis.find(k => k.id === 'kpi-cost-poids-dechet');
-  const poidsConsomme = db.kpis.find(k => k.id === 'kpi-cost-poids-consomme');
-  const tauxDechet = db.kpis.find(k => k.id === 'kpi-cost-taux-dechet');
-
-  if (poidsDechet && poidsConsomme && tauxDechet && hasRecordedData(poidsDechet, poidsConsomme)) {
-    const pdW = poidsDechet.weeklyValue || 0;
-    const pcW = poidsConsomme.weeklyValue || 0;
-    tauxDechet.weeklyValue = pcW > 0 ? Number(((pdW / pcW) * 100).toFixed(2)) : 0;
-
-    const pdD = poidsDechet.dailyValue || 0;
-    const pcD = poidsConsomme.dailyValue || 0;
-    tauxDechet.dailyValue = pcD > 0 ? Number(((pdD / pcD) * 100).toFixed(2)) : 0;
-
-    tauxDechet.status = evaluateKPIStatus(tauxDechet.weeklyValue, tauxDechet.target, tauxDechet.name, tauxDechet.category);
-    updateKPIHistory(tauxDechet, currentWeekLabel, tauxDechet.weeklyValue);
-
-    recordedWeeks(poidsDechet, poidsConsomme).forEach(w => {
-      const pdH = poidsDechet.history?.find(h => h.date === w)?.value || 0;
-      const pcH = poidsConsomme.history?.find(h => h.date === w)?.value || 0;
-      const valH = pcH > 0 ? (pdH / pcH) * 100 : 0;
-      updateKPIHistory(tauxDechet, w, Number(valH.toFixed(2)));
-    });
-
-    recomputeFormulaSiteRatio(tauxDechet, poidsDechet, poidsConsomme, 'site1', 0, 2);
-    recomputeFormulaSiteRatio(tauxDechet, poidsDechet, poidsConsomme, 'site2', 0, 2);
-  }
+  db.kpis.forEach(k => {
+    if (k.isCalculated && k.formula && k.formulaInputs) {
+      computeCalculatedKpi(db, k as KpiRecord & { formula: string; formulaInputs: Record<string, string> });
+    }
+  });
 }
 
 // One-time migration for the '5S' + 'Environnement' category merge into 'Amélioration
@@ -452,11 +358,49 @@ function migrateWasteKpis(data: DataStoreSchema): boolean {
   }
 
   const tauxDechet = data.kpis.find((k: any) => k.id === 'kpi-cost-taux-dechet');
-  if (tauxDechet && tauxDechet.name !== '% déchet = Poids de déchet/Poids consommé') {
-    tauxDechet.name = '% déchet = Poids de déchet/Poids consommé';
+  if (tauxDechet && tauxDechet.name !== '% déchet = Poids de déchet/Poids consommé*100') {
+    tauxDechet.name = '% déchet = Poids de déchet/Poids consommé*100';
     tauxDechet.description = 'Taux de déchet calculé automatiquement par le rapport du poids de déchet sur le poids consommé.';
     changed = true;
   }
+
+  return changed;
+}
+
+// Backfills isCalculated/formula/formulaInputs onto the formula KPIs that predate the generic
+// formula engine, translating their old hardcoded JS calculations into the equivalent data-driven
+// expression — same math, now editable from Configuration > Référentiel des KPI. Présence/Gemba
+// stay isCalculated with no formula (they're driven by their own tracker, not by other KPIs).
+// Idempotent: only touches a KPI whose formula field is still unset.
+function migrateFormulaEngine(data: DataStoreSchema): boolean {
+  let changed = false;
+  if (!data.kpis) return false;
+
+  const FORMULA_SEEDS: Record<string, { formula: string; formulaInputs: Record<string, string> }> = {
+    'kpi-qual-conformite': { formula: '(PC-(NC1*2+NC2))/PC*100', formulaInputs: { PC: 'kpi-qual-pc', NC1: 'kpi-qual-nc1', NC2: 'kpi-qual-nc2' } },
+    'kpi-prod-productivite': { formula: 'QF/QP*100', formulaInputs: { QF: 'kpi-prod-qf', QP: 'kpi-prod-qp' } },
+    'kpi-cost-ratio': { formula: 'RF/RP*100', formulaInputs: { RF: 'kpi-cost-rf', RP: 'kpi-cost-rp' } },
+    'kpi-cost-taux-dechet': { formula: 'PD/PC*100', formulaInputs: { PD: 'kpi-cost-poids-dechet', PC: 'kpi-cost-poids-consomme' } }
+  };
+
+  data.kpis.forEach((k: any) => {
+    const seed = FORMULA_SEEDS[k.id];
+    if (seed && !k.formula) {
+      k.isCalculated = true;
+      k.formula = seed.formula;
+      k.formulaInputs = seed.formulaInputs;
+      if (!k.siteAggregation) k.siteAggregation = 'average';
+      changed = true;
+    }
+  });
+
+  (['kpi-rh-presence', 'kpi-sec-gemba'] as const).forEach(id => {
+    const k = data.kpis.find((kpi: any) => kpi.id === id) as any;
+    if (k && !k.isCalculated) {
+      k.isCalculated = true;
+      changed = true;
+    }
+  });
 
   return changed;
 }
@@ -515,6 +459,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateWasteKpis(data)) {
+        modified = true;
+      }
+
+      if (migrateFormulaEngine(data)) {
         modified = true;
       }
 
@@ -779,7 +727,23 @@ app.get('/api/kpis', async (req, res) => {
   res.json(db.kpis);
 });
 
+// Rejects a formula that doesn't parse, or that references an alias missing from formulaInputs
+// — better to fail the save with a clear message than silently store a formula that will just
+// evaluate to null forever. No-op when the request doesn't touch the formula at all.
+function validateFormulaFields(body: any): string | null {
+  if (body.formula === undefined) return null;
+  const validation = validateFormula(body.formula);
+  if (!validation.valid) return `Formule invalide : ${validation.error}`;
+  const inputs = body.formulaInputs || {};
+  const missing = validation.identifiers.filter(name => !(name in inputs));
+  if (missing.length > 0) return `Variable(s) non associée(s) à un KPI : ${missing.join(', ')}`;
+  return null;
+}
+
 app.put('/api/kpis/:id', async (req, res) => {
+  const formulaError = validateFormulaFields(req.body);
+  if (formulaError) return res.status(400).json({ error: formulaError });
+
   const db = await readDB();
   const { id } = req.params;
   const index = db.kpis.findIndex(k => k.id === id);
@@ -839,6 +803,9 @@ app.put('/api/kpis', async (req, res) => {
 
 // Create new KPI (Admin UI capability)
 app.post('/api/kpis', async (req, res) => {
+  const formulaError = validateFormulaFields(req.body);
+  if (formulaError) return res.status(400).json({ error: formulaError });
+
   const db = await readDB();
   const newKpi = {
     id: `kpi-custom-${Date.now()}`,

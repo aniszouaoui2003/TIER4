@@ -29,7 +29,8 @@ import {
 } from 'lucide-react';
 import { KPI, SQLServerConfig, AuditLog, User, UserRole, AccessLevel, ModuleId, ModulePermissions } from '../types';
 import { downloadWorkbook, readWorkbook } from '../utils/excelIO';
-import { buildExportSheet, parseImportRows, FORMULA_KPI_IDS } from '../utils/kpiExcelData';
+import { buildExportSheet, parseImportRows } from '../utils/kpiExcelData';
+import { validateFormula } from '../utils/formulaEngine';
 
 const MODULE_LABELS: Record<ModuleId, string> = {
   dashboard: 'Tableau de Bord',
@@ -127,6 +128,18 @@ export default function AdminSettings({
   const [kpiSite2Owner, setKpiSite2Owner] = useState('');
   const [kpiOfficeplastOwner, setKpiOfficeplastOwner] = useState('');
 
+  // Site 1 + Site 2 aggregation mode for the Total row (applies to every site-tracked KPI)
+  const [kpiSiteAggregation, setKpiSiteAggregation] = useState<'sum' | 'average'>('sum');
+
+  // Formula engine state (calculated KPIs only)
+  const [kpiIsCalculated, setKpiIsCalculated] = useState(false);
+  const [kpiFormula, setKpiFormula] = useState('');
+  const [kpiFormulaInputs, setKpiFormulaInputs] = useState<Record<string, string>>({});
+
+  // Live formula validation, recomputed on every keystroke — cheap, pure parse, no need for effects
+  const formulaValidation = kpiIsCalculated ? validateFormula(kpiFormula) : null;
+  const formulaIdentifiers = formulaValidation?.identifiers || [];
+
   // New / Editing User Form State
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newUsername, setNewUsername] = useState('');
@@ -176,7 +189,7 @@ export default function AdminSettings({
   const handleExcelExport = async () => {
     const periodLabel = excelPeriodMode === 'monthly' ? 'Mensuel' : 'Hebdomadaire';
     const siteLabel = excelSiteView === 'total' ? 'Total Site' : excelSiteView === 'site1' ? 'Site 1' : 'Site 2';
-    const { headers, rows } = buildExportSheet(kpis, excelPeriodMode, excelSiteView, FORMULA_KPI_IDS);
+    const { headers, rows } = buildExportSheet(kpis, excelPeriodMode, excelSiteView);
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -208,7 +221,7 @@ export default function AdminSettings({
     setExcelStatus('Lecture du fichier .xlsx…');
     try {
       const parsed = await readWorkbook(file);
-      const { updates, appliedCount, skipped } = parseImportRows(parsed, kpis, FORMULA_KPI_IDS);
+      const { updates, appliedCount, skipped } = parseImportRows(parsed, kpis);
 
       if (appliedCount === 0) {
         setExcelStatus(null);
@@ -251,6 +264,10 @@ export default function AdminSettings({
     setKpiSite1Owner(k.site1Owner || '');
     setKpiSite2Owner(k.site2Owner || '');
     setKpiOfficeplastOwner(k.officeplastOwner || '');
+    setKpiSiteAggregation(k.siteAggregation || 'sum');
+    setKpiIsCalculated(!!k.isCalculated);
+    setKpiFormula(k.formula || '');
+    setKpiFormulaInputs(k.formulaInputs || {});
   };
 
   const handleCancelEdit = () => {
@@ -269,12 +286,46 @@ export default function AdminSettings({
     setKpiSite1Owner('');
     setKpiSite2Owner('');
     setKpiOfficeplastOwner('');
+    setKpiSiteAggregation('sum');
+    setKpiIsCalculated(false);
+    setKpiFormula('');
+    setKpiFormulaInputs({});
   };
 
   // Handle KPI creation or update
   const handleCreateKPI = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKpiName || !newKpiOwner || !newKpiUnit) return;
+
+    // A calculated KPI may be left without a formula (tracker-driven KPIs like Présence / Gemba
+    // are marked isCalculated but computed by their own dedicated module) — only validate and
+    // require alias mappings when the admin actually typed a formula.
+    const trimmedFormula = kpiFormula.trim();
+    if (kpiIsCalculated && trimmedFormula) {
+      const validation = validateFormula(trimmedFormula);
+      if (!validation.valid) {
+        alert(`Formule invalide : ${validation.error}`);
+        return;
+      }
+      const missing = validation.identifiers.filter(id => !kpiFormulaInputs[id]);
+      if (missing.length > 0) {
+        alert(`Veuillez associer chaque variable de la formule à un KPI source : ${missing.join(', ')} non associée(s).`);
+        return;
+      }
+    }
+
+    const formulaFields: Partial<KPI> = {
+      isCalculated: kpiIsCalculated,
+      siteAggregation: (kpiSite1Checked || kpiSite2Checked) ? kpiSiteAggregation : undefined,
+      ...(kpiIsCalculated && trimmedFormula
+        ? {
+            formula: trimmedFormula,
+            formulaInputs: Object.fromEntries(
+              validateFormula(trimmedFormula).identifiers.map(id => [id, kpiFormulaInputs[id]])
+            )
+          }
+        : {})
+    };
 
     if (editingKpi) {
       await onUpdateKPI(editingKpi.id, {
@@ -290,7 +341,8 @@ export default function AdminSettings({
         totalChecked: kpiTotalChecked,
         site1Owner: kpiSite1Owner || undefined,
         site2Owner: kpiSite2Owner || undefined,
-        officeplastOwner: kpiOfficeplastOwner || undefined
+        officeplastOwner: kpiOfficeplastOwner || undefined,
+        ...formulaFields
       });
       alert(`L'indicateur "${newKpiName}" a été correctement mis à jour.`);
       handleCancelEdit();
@@ -314,7 +366,8 @@ export default function AdminSettings({
         site2Owner: kpiSite2Owner || undefined,
         officeplastOwner: kpiOfficeplastOwner || undefined,
         site1Value: 0,
-        site2Value: 0
+        site2Value: 0,
+        ...formulaFields
       });
       alert(`L'indicateur "${newKpiName}" a été correctement ajouté aux référentiels Tier 4.`);
       handleCancelEdit();
@@ -669,6 +722,89 @@ export default function AdminSettings({
                       </div>
                     )}
                   </div>
+
+                  {(kpiSite1Checked || kpiSite2Checked) && (
+                    <div className="grid grid-cols-12 items-center gap-2 pt-1 border-t border-slate-200/55 dark:border-slate-800">
+                      <label className="col-span-4 text-[8px] font-bold text-slate-400 uppercase">Total HQ =</label>
+                      <div className="col-span-8 flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setKpiSiteAggregation('sum')}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            kpiSiteAggregation === 'sum'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500'
+                          }`}
+                        >
+                          Somme (S1+S2)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setKpiSiteAggregation('average')}
+                          className={`flex-1 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            kpiSiteAggregation === 'average'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500'
+                          }`}
+                        >
+                          Moyenne (S1+S2)/2
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Formula engine — mark the KPI as calculated and, optionally, wire it to a
+                    generic expression evaluated from other KPIs' values */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg space-y-2.5 border border-slate-100 dark:border-slate-800">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={kpiIsCalculated}
+                      onChange={(e) => setKpiIsCalculated(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">KPI calculé (lecture seule, non saisissable)</span>
+                  </label>
+
+                  {kpiIsCalculated && (
+                    <div className="space-y-2 pt-1 border-t border-slate-200/55 dark:border-slate-800">
+                      <div>
+                        <label className="block text-[8px] font-bold text-slate-400 uppercase mb-1">Formule (laisser vide si calculé par un module dédié : Présence, Gemba…)</label>
+                        <input
+                          type="text"
+                          placeholder="ex: (PC-(NC1*2+NC2))/PC*100"
+                          value={kpiFormula}
+                          onChange={(e) => setKpiFormula(e.target.value)}
+                          className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded p-1.5 text-slate-800 dark:text-slate-200 text-[11px] font-mono"
+                        />
+                        {kpiFormula.trim() && formulaValidation && !formulaValidation.valid && (
+                          <p className="text-[9px] text-rose-600 mt-1">{formulaValidation.error}</p>
+                        )}
+                      </div>
+
+                      {kpiFormula.trim() && formulaValidation?.valid && formulaIdentifiers.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[8px] font-bold text-slate-400 uppercase block">Associer chaque variable à un KPI source</span>
+                          {formulaIdentifiers.map(alias => (
+                            <div key={alias} className="grid grid-cols-12 items-center gap-2">
+                              <label className="col-span-3 text-[10px] font-mono font-bold text-blue-600">{alias}</label>
+                              <select
+                                value={kpiFormulaInputs[alias] || ''}
+                                onChange={(e) => setKpiFormulaInputs(prev => ({ ...prev, [alias]: e.target.value }))}
+                                className="col-span-9 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded p-1 text-slate-800 dark:text-slate-200 text-[10px]"
+                              >
+                                <option value="">— Sélectionner un KPI —</option>
+                                {kpis.filter(opt => opt.id !== editingKpi?.id).map(opt => (
+                                  <option key={opt.id} value={opt.id}>{opt.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Thresholds definition */}
@@ -743,6 +879,16 @@ export default function AdminSettings({
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{k.name}</span>
                         <span className="text-[8px] bg-slate-200/60 dark:bg-slate-700 px-1 rounded font-bold uppercase font-mono">{k.category}</span>
+                        {k.isCalculated && (
+                          <span className="text-[8px] bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 px-1 rounded font-bold uppercase shrink-0">
+                            Calculé
+                          </span>
+                        )}
+                        {(k.site1Checked || k.site2Checked) && (
+                          <span className="text-[8px] bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 px-1 rounded font-bold uppercase shrink-0">
+                            {k.siteAggregation === 'average' ? 'Moy. S1+S2' : 'Somme S1+S2'}
+                          </span>
+                        )}
                       </div>
                       <p className="text-[10px] text-slate-400">
                         Cible : <strong>{k.target} {k.unit}</strong> • Pilote : {k.owner}
@@ -750,6 +896,9 @@ export default function AdminSettings({
                         {k.site2Checked && ` • S2: ${k.site2Owner || 'Indéfini'}`}
                         {k.totalChecked && ` • HQ: ${k.officeplastOwner || 'Indéfini'}`}
                       </p>
+                      {k.formula && (
+                        <p className="text-[9px] text-violet-500 font-mono truncate" title={k.formula}>ƒ = {k.formula}</p>
+                      )}
                     </div>
 
                     {/* Inline thresholds editing & deletion */}

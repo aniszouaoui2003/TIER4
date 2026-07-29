@@ -92,6 +92,18 @@ export interface KPI {
   monthlyOverrides?: { date: string; value: number }[];
   site1MonthlyOverrides?: { date: string; value: number }[];
   site2MonthlyOverrides?: { date: string; value: number }[];
+  // How the Total row combines Site 1 + Site 2 for any KPI tracked on both — 'sum' (default when
+  // absent, preserving pre-existing behavior) or 'average'.
+  siteAggregation?: 'sum' | 'average';
+  // True for any KPI whose value is computed automatically rather than entered directly — read-
+  // only in the grid. When also paired with `formula`/`formulaInputs` it's driven by the generic
+  // formula engine (src/utils/formulaEngine.ts); without those two it's computed some other way
+  // (e.g. présence/Gemba, driven by their own tracker) and stays exactly as before.
+  isCalculated?: boolean;
+  // Arithmetic expression over the aliases defined in formulaInputs, e.g. "(PC-(NC1*2+NC2))/PC*100".
+  formula?: string;
+  // Alias -> source KPI id, e.g. { PC: 'kpi-qual-pc', NC1: 'kpi-qual-nc1', NC2: 'kpi-qual-nc2' }.
+  formulaInputs?: Record<string, string>;
 }
 
 export interface ActionAttachment {

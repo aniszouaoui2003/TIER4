@@ -54,6 +54,7 @@ export const INITIAL_KPIS: KPI[] = [
     site2Checked: false,
     totalChecked: true,
     officeplastOwner: 'Anis Zouaoui',
+    isCalculated: true, // computed by Suivi Présence, not by the KPI formula engine
     history: []
   },
   {
@@ -97,6 +98,7 @@ export const INITIAL_KPIS: KPI[] = [
     site2Checked: false,
     totalChecked: true,
     officeplastOwner: 'Anis Zouaoui',
+    isCalculated: true, // computed by Suivi Gemba HSE, not by the KPI formula engine
     history: []
   },
   {
@@ -291,7 +293,7 @@ export const INITIAL_KPIS: KPI[] = [
   {
     id: 'kpi-qual-conformite',
     category: 'Qualité',
-    name: '% de conformité= (PC-(NC1*2-NC2))/PC',
+    name: '% de conformité = (PC-(NC1*2+NC2))/PC*100',
     unit: '%',
     dailyValue: 0,
     weeklyValue: 0,
@@ -310,6 +312,10 @@ export const INITIAL_KPIS: KPI[] = [
     site2Value: 0,
     site1History: [],
     site2History: [],
+    isCalculated: true,
+    siteAggregation: 'average',
+    formula: '(PC-(NC1*2+NC2))/PC*100',
+    formulaInputs: { PC: 'kpi-qual-pc', NC1: 'kpi-qual-nc1', NC2: 'kpi-qual-nc2' },
     history: []
   },
 
@@ -482,7 +488,7 @@ export const INITIAL_KPIS: KPI[] = [
   {
     id: 'kpi-prod-productivite',
     category: 'Production',
-    name: '% de productivité = QF/QP',
+    name: '% de productivité = QF/QP*100',
     unit: '%',
     dailyValue: 0,
     weeklyValue: 0,
@@ -501,6 +507,10 @@ export const INITIAL_KPIS: KPI[] = [
     site2Value: 0,
     site1History: [],
     site2History: [],
+    isCalculated: true,
+    siteAggregation: 'average',
+    formula: 'QF/QP*100',
+    formulaInputs: { QF: 'kpi-prod-qf', QP: 'kpi-prod-qp' },
     history: []
   },
   {
@@ -554,7 +564,7 @@ export const INITIAL_KPIS: KPI[] = [
   {
     id: 'kpi-cost-ratio',
     category: 'Coût',
-    name: '% recette=RF/RP',
+    name: '% recette = RF/RP*100',
     unit: '%',
     dailyValue: 0,
     weeklyValue: 0,
@@ -573,6 +583,10 @@ export const INITIAL_KPIS: KPI[] = [
     site2Value: 0,
     site1History: [],
     site2History: [],
+    isCalculated: true,
+    siteAggregation: 'average',
+    formula: 'RF/RP*100',
+    formulaInputs: { RF: 'kpi-cost-rf', RP: 'kpi-cost-rp' },
     history: []
   },
   {
@@ -650,7 +664,7 @@ export const INITIAL_KPIS: KPI[] = [
   {
     id: 'kpi-cost-taux-dechet',
     category: 'Coût',
-    name: '% déchet = Poids de déchet/Poids consommé',
+    name: '% déchet = Poids de déchet/Poids consommé*100',
     unit: '%',
     dailyValue: 0,
     weeklyValue: 0,
@@ -665,6 +679,10 @@ export const INITIAL_KPIS: KPI[] = [
     totalChecked: false,
     site1Owner: 'Mokded Nasri',
     site2Owner: 'Mokded Nasri',
+    isCalculated: true,
+    siteAggregation: 'average',
+    formula: 'PD/PC*100',
+    formulaInputs: { PD: 'kpi-cost-poids-dechet', PC: 'kpi-cost-poids-consomme' },
     history: []
   },
 

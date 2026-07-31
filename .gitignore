@@ -7,4 +7,5 @@ coverage/
 .env*
 !.env.example
 data-store.json
+data-store.backup-*.json
 .vercel

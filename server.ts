@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
 import { loadRaw, persistRaw } from './src/data/store.js';
+import { syncFromProdOnStartup } from './src/data/syncFromProd.js';
 import { MONTH_WEEK_RANGES, CURRENT_WEEK, getMonthIndexForWeek } from './src/utils/weekCalendar.js';
 import { aggregateSites } from './src/utils/kpiExcelData.js';
 import { evaluateFormula, validateFormula } from './src/utils/formulaEngine.js';
@@ -1737,6 +1738,8 @@ Tu dois renvoyer exactement cet objet JSON de structure :
 // ==========================================
 
 async function startServer() {
+  await syncFromProdOnStartup();
+
   if (process.env.NODE_ENV !== 'production') {
     // Dynamically imported so 'vite' (a devDependency) never has to be bundled
     // into the Vercel serverless function, which only runs in production mode.

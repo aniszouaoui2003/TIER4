@@ -26,7 +26,7 @@ import {
 } from 'recharts';
 import { KPI, Action, User } from '../types';
 import { CURRENT_WEEK, MONTH_WEEK_RANGES, getMonthIndexForWeek } from '../utils/weekCalendar';
-import { getWeeklyRowValue, getMonthlyRowValue, evaluateStatus, ALL_WEEKS } from '../utils/kpiExcelData';
+import { getWeeklyRowValue, getMonthlyRowValue, evaluateStatus, ALL_WEEKS, RowType } from '../utils/kpiExcelData';
 
 interface ModuleDetailProps {
   kpis: KPI[];
@@ -56,7 +56,20 @@ export default function ModuleDetail({
     { id: 'Amélioration continue', label: 'Amélioration continue', icon: Sparkles, color: 'border-b-2 border-b-indigo-500 text-indigo-600' }
   ];
 
-  const currentModuleKpis = kpis.filter(k => k.category === selectedModuleId);
+  // Site filter: Total Officeplast (sum/average of both sites), Site 1, or Site 2 — same three
+  // options and the same underlying RowType mapping as the Dashboard and Saisie KPIs. KPIs not
+  // tracked per-site (no site1Checked/site2Checked) are unaffected and always show their single
+  // total value regardless of the selected site.
+  const [selectedSite, setSelectedSite] = React.useState<'Total' | 'Site 1' | 'Site 2'>('Total');
+  const rowType: RowType = selectedSite === 'Site 1' ? 'site1' : selectedSite === 'Site 2' ? 'site2' : 'total';
+
+  const currentModuleKpis = kpis
+    .filter(k => k.category === selectedModuleId)
+    .filter(k => {
+      if (selectedSite === 'Site 1') return k.site1Checked;
+      if (selectedSite === 'Site 2') return k.site2Checked;
+      return true;
+    });
   const currentModuleActions = actions.filter(a => a.department === selectedModuleId);
 
   // Period selector: a single week, a month (aggregated like the Saisie KPIs monthly rollup),
@@ -73,11 +86,11 @@ export default function ModuleDetail({
   // Card value for the selected period: the week's value, the month's aggregate, or the
   // average across the chosen week range.
   const getCardValue = (k: KPI): number | null => {
-    if (periodMode === 'week') return getWeeklyRowValue(k, 'total', selectedWeek);
-    if (periodMode === 'month') return getMonthlyRowValue(k, 'total', selectedMonthIndex);
+    if (periodMode === 'week') return getWeeklyRowValue(k, rowType, selectedWeek);
+    if (periodMode === 'month') return getMonthlyRowValue(k, rowType, selectedMonthIndex);
     const vals: number[] = [];
     for (let w = Math.min(rangeStart, rangeEnd); w <= Math.max(rangeStart, rangeEnd); w++) {
-      const v = getWeeklyRowValue(k, 'total', w);
+      const v = getWeeklyRowValue(k, rowType, w);
       if (v !== null) vals.push(v);
     }
     return vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
@@ -102,9 +115,9 @@ export default function ModuleDetail({
   // `chartWeeks` otherwise.
   const getKpiSeries = (k: KPI): { label: string; value: number | null }[] => {
     if (periodMode === 'month') {
-      return MONTH_WEEK_RANGES.map((m, idx) => ({ label: m.name, value: getMonthlyRowValue(k, 'total', idx) }));
+      return MONTH_WEEK_RANGES.map((m, idx) => ({ label: m.name, value: getMonthlyRowValue(k, rowType, idx) }));
     }
-    return chartWeeks.map(w => ({ label: `S${w}`, value: getWeeklyRowValue(k, 'total', w) }));
+    return chartWeeks.map(w => ({ label: `S${w}`, value: getWeeklyRowValue(k, rowType, w) }));
   };
 
   const chartPeriodLabel = periodMode === 'month'
@@ -163,6 +176,24 @@ export default function ModuleDetail({
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Indicateurs industriels, tendance sur la période choisie et plans d'actions associés
           </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 self-start lg:self-center">
+        {/* Site selector: Total Officeplast, Site 1, Site 2 */}
+        <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          {(['Total', 'Site 1', 'Site 2'] as const).map(site => (
+            <button
+              key={site}
+              onClick={() => setSelectedSite(site)}
+              className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
+                selectedSite === site
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              {site === 'Total' ? 'Total Officeplast' : site}
+            </button>
+          ))}
         </div>
 
         {/* Period selector: single week, month, or a custom week-to-week range */}
@@ -230,6 +261,7 @@ export default function ModuleDetail({
               </select>
             </div>
           )}
+        </div>
         </div>
       </div>
 

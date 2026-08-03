@@ -12,7 +12,6 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { loadRaw, persistRaw } from './src/data/store.js';
 import { syncFromProdOnStartup } from './src/data/syncFromProd.js';
 import { MONTH_WEEK_RANGES, CURRENT_WEEK, getMonthIndexForWeek } from './src/utils/weekCalendar.js';
-import { aggregateSites } from './src/utils/kpiExcelData.js';
 import { evaluateFormula, validateFormula } from './src/utils/formulaEngine.js';
 
 // Load environment variables
@@ -76,6 +75,11 @@ interface DataStoreSchema {
   // idempotent (a post-migration Clôture at the new index 8 is indistinguishable by value alone
   // from a not-yet-migrated old index 8), so it can only run once, guarded by this flag.
   meetingStepsMigrated?: boolean;
+  // One-time flag forcing a single recalculateAllFormulas pass after the Total-row fix below —
+  // existing calculated + site-tracked KPIs never had a `history` entry for their Total (it used
+  // to be derived live via aggregateSites instead), so without this their historical Total cells
+  // would read as empty until the next unrelated save.
+  formulaTotalsBackfilled?: boolean;
 }
 
 function evaluateKPIStatus(value: number, target: number, name: string, category: string): 'Green' | 'Orange' | 'Red' {
@@ -189,9 +193,8 @@ function computeCalculatedKpi(db: DataStoreSchema, kpi: KpiRecord & { formula: s
   }
 
   // Site-tracked: evaluate the formula independently per site (each input's own site1/site2
-  // figures), then the Total is aggregateSites(site1, site2) per kpi.siteAggregation — never a
-  // separate formula evaluation on combined inputs, so it always agrees with what Saisie KPIs /
-  // Indicateurs Métiers compute for the same Total row.
+  // figures) for the Site 1 / Site 2 rows below, then separately evaluate it once more on the
+  // combined (summed) inputs for the Total row — see the totalVars block further down.
   (['site1', 'site2'] as const).forEach(site => {
     const checkedField = site === 'site1' ? 'site1Checked' : 'site2Checked';
     if (!(kpi as any)[checkedField]) return;
@@ -221,12 +224,34 @@ function computeCalculatedKpi(db: DataStoreSchema, kpi: KpiRecord & { formula: s
     });
   });
 
-  const totalNow = aggregateSites(
-    kpi.site1Checked ? (kpi as any).site1Value : undefined,
-    kpi.site2Checked ? (kpi as any).site2Value : undefined,
-    kpi.siteAggregation
-  );
-  if (totalNow !== null) kpi.weeklyValue = totalNow;
+  // Total: evaluate the formula once on the SUM of each input's site1+site2 raw values — never
+  // by combining (summing/averaging) the two sites' own computed ratios. A %-of-whole metric like
+  // RF/RP must equal sum(RF)/sum(RP) across both sites; averaging avg(RF1/RP1, RF2/RP2) instead
+  // weighs a small site exactly as much as a large one and gives a materially wrong percentage.
+  const totalVars: Record<string, number> = {};
+  aliases.forEach(a => {
+    const v1 = kpi.site1Checked ? ((inputs[a] as any).site1Value || 0) : 0;
+    const v2 = kpi.site2Checked ? ((inputs[a] as any).site2Value || 0) : 0;
+    totalVars[a] = v1 + v2;
+  });
+  const totalVal = evaluateFormula(kpi.formula, totalVars);
+  if (totalVal !== null) kpi.weeklyValue = Number(totalVal.toFixed(2));
+
+  const totalWeeks = new Set<string>();
+  (['site1History', 'site2History'] as const).forEach(field => {
+    inputList.forEach(i => ((i as any)[field] as HistoryEntry[] | undefined)?.forEach(h => totalWeeks.add(h.date)));
+  });
+  totalWeeks.forEach(w => {
+    const vars: Record<string, number> = {};
+    aliases.forEach(a => {
+      const site1Val = kpi.site1Checked ? (((inputs[a] as any).site1History as HistoryEntry[] | undefined)?.find(h => h.date === w)?.value ?? 0) : 0;
+      const site2Val = kpi.site2Checked ? (((inputs[a] as any).site2History as HistoryEntry[] | undefined)?.find(h => h.date === w)?.value ?? 0) : 0;
+      vars[a] = site1Val + site2Val;
+    });
+    const val = evaluateFormula(kpi.formula, vars);
+    if (val !== null) updateKPIHistory(kpi, w, Number(val.toFixed(2)));
+  });
+
   kpi.status = evaluateKPIStatus(kpi.weeklyValue, kpi.target, kpi.name, kpi.category);
 }
 
@@ -464,6 +489,11 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateFormulaEngine(data)) {
+        modified = true;
+      }
+
+      if (!data.formulaTotalsBackfilled) {
+        data.formulaTotalsBackfilled = true;
         modified = true;
       }
 

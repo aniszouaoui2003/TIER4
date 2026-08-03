@@ -216,14 +216,16 @@ export default function KPITeamGuruEntry({
   };
 
   // Resolves the value shown on a given grid row (total / site1 / site2) for a specific week.
-  // The "total" row of a site-tracked KPI is never read from `history` directly — it's always
-  // derived live from its site rows via aggregateSites (sum or average per k.siteAggregation),
-  // so the two can never silently drift apart. This applies uniformly to every site-tracked KPI,
-  // including calculated ones — their site1History/site2History already hold the formula's own
-  // per-site results (see getLiveKpi), so combining them the same way is exactly right.
+  // The "total" row of a site-tracked KPI is derived live from its site rows via aggregateSites
+  // (sum or average per k.siteAggregation), so the two can never silently drift apart — EXCEPT for
+  // a calculated (formula) KPI, whose site1History/site2History hold each site's own *ratio*
+  // result: combining two percentages that way (e.g. avg(RF1/RP1, RF2/RP2)) is not the same number
+  // as the true combined ratio (sum(RF)/sum(RP)), so those Totals are read straight from `history`
+  // instead, which the server (computeCalculatedKpi) fills by evaluating the formula once on the
+  // two sites' summed raw inputs.
   const getRowWeekValue = (k: KPI, rowType: RowType, week: number): number | null => {
     const siteTracked = !!(k.site1Checked || k.site2Checked);
-    if (rowType === 'total' && siteTracked) {
+    if (rowType === 'total' && siteTracked && !k.isCalculated) {
       const has1 = k.site1Checked && hasWeekData(k.id, week, 'site1History');
       const has2 = k.site2Checked && hasWeekData(k.id, week, 'site2History');
       const v1 = has1 ? getLiveHistoryVal(k.id, `Semaine ${week}`, 'site1History') : undefined;
@@ -275,14 +277,15 @@ export default function KPITeamGuruEntry({
   };
 
   // The value actually shown on a row's monthly cell: a manual override when one exists,
-  // otherwise the computed weekly rollup. The Total row of a site-tracked KPI is always the live
+  // otherwise the computed weekly rollup. The Total row of a site-tracked KPI is the live
   // aggregate (sum or average, per k.siteAggregation) of its sites' effective monthly values
-  // (so it inherits overrides from Site 1 / Site 2) — applied uniformly, including formula KPIs.
+  // (so it inherits overrides from Site 1 / Site 2) — except for a calculated KPI, whose Total
+  // instead rolls up from the already-correctly-computed weekly Totals (see getRowWeekValue).
   const getEffectiveMonthValue = (k: KPI, rowType: RowType, monthIndex: number): { value: number | null; isOverride: boolean } => {
     const m = MONTH_WEEK_RANGES[monthIndex];
     const siteTracked = !!(k.site1Checked || k.site2Checked);
 
-    if (rowType === 'total' && siteTracked) {
+    if (rowType === 'total' && siteTracked && !k.isCalculated) {
       const r1 = k.site1Checked ? getEffectiveMonthValue(k, 'site1', monthIndex) : null;
       const r2 = k.site2Checked ? getEffectiveMonthValue(k, 'site2', monthIndex) : null;
       if ((r1?.value ?? null) === null && (r2?.value ?? null) === null) return { value: null, isOverride: false };

@@ -80,13 +80,17 @@ export function aggregateSites(v1: number | null | undefined, v2: number | null 
   return Number((aggregation === 'average' ? sum / vals.length : sum).toFixed(2));
 }
 
-// Weekly value for one row; the Total row of a site-tracked KPI is always derived live from its
-// sites via aggregateSites (never read from `history` directly) — including calculated KPIs,
-// whose site1History/site2History already hold their own formula-evaluated results.
+// Weekly value for one row. The Total row of a site-tracked KPI is derived live from its sites
+// via aggregateSites (never read from `history` directly) — EXCEPT for a calculated (formula) KPI,
+// whose site1History/site2History hold each site's own formula-evaluated *ratio*, not a raw
+// quantity: averaging/summing two percentages (e.g. avg(RF1/RP1, RF2/RP2)) is not the same number
+// as the true combined ratio (sum(RF)/sum(RP)), so those Totals are instead read straight from
+// `history`, which the server (computeCalculatedKpi) populates by evaluating the formula once on
+// the two sites' summed raw inputs.
 export function getWeeklyRowValue(kpi: KPI, rowType: RowType, week: number): number | null {
   const label = `Semaine ${week}`;
   const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
-  if (rowType === 'total' && siteTracked) {
+  if (rowType === 'total' && siteTracked && !kpi.isCalculated) {
     const h1 = kpi.site1Checked ? kpi.site1History?.find(h => h.date === label) : undefined;
     const h2 = kpi.site2Checked ? kpi.site2History?.find(h => h.date === label) : undefined;
     return aggregateSites(h1?.value, h2?.value, kpi.siteAggregation);
@@ -96,13 +100,14 @@ export function getWeeklyRowValue(kpi: KPI, rowType: RowType, week: number): num
 }
 
 // Effective monthly value for one row: a manual override wins, otherwise the average of the
-// weeks reported so far in that month. Total is always derived from its sites' effective monthly
-// values via aggregateSites (so it inherits their overrides too).
+// weeks reported so far in that month. Total is derived from its sites' effective monthly values
+// via aggregateSites (so it inherits their overrides too) — except for a calculated KPI, whose
+// Total instead rolls up from the already-correctly-computed weekly Totals (see getWeeklyRowValue).
 export function getMonthlyRowValue(kpi: KPI, rowType: RowType, monthIndex: number): number | null {
   const month = MONTH_WEEK_RANGES[monthIndex];
   const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
 
-  if (rowType === 'total' && siteTracked) {
+  if (rowType === 'total' && siteTracked && !kpi.isCalculated) {
     const v1 = kpi.site1Checked ? getMonthlyRowValue(kpi, 'site1', monthIndex) : null;
     const v2 = kpi.site2Checked ? getMonthlyRowValue(kpi, 'site2', monthIndex) : null;
     return aggregateSites(v1, v2, kpi.siteAggregation);

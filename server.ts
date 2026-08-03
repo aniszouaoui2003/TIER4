@@ -344,6 +344,23 @@ function migrateUserAccounts(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// Renames the "k€" currency unit to "KTnd" (Kilo Dinars Tunisiens) on every KPI still carrying
+// the old label. Idempotent: a simple presence check, safe to run on every read.
+function migrateCurrencyUnit(data: DataStoreSchema): boolean {
+  let changed = false;
+  data.kpis?.forEach((k: any) => {
+    if (k.unit === 'k€') {
+      k.unit = 'KTnd';
+      changed = true;
+    }
+    if (k.description === 'Valorisation financière en Kilo Euros de la production réelle conformée.') {
+      k.description = 'Valorisation financière en Kilo Dinars Tunisiens de la production réelle conformée.';
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 // Retires "valeur produite" (kpi-cost-valeur-produite) and its role feeding % déchet, replacing
 // it with two directly-entered weight KPIs (poids de déchet / poids consommé) — % déchet is now
 // their ratio instead of valeur déchet / valeur produite. Idempotent: presence and position
@@ -485,6 +502,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateWasteKpis(data)) {
+        modified = true;
+      }
+
+      if (migrateCurrencyUnit(data)) {
         modified = true;
       }
 

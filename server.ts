@@ -361,6 +361,25 @@ function migrateCurrencyUnit(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// Adds the three stock-value KPIs (DC2, PMP, DM2) to the Coût category for any database that
+// predates them. Idempotent: only inserts whichever of the three IDs isn't already present.
+function migrateStockValueKpis(data: DataStoreSchema): boolean {
+  let changed = false;
+  if (!data.kpis) return false;
+
+  const stockIds = ['kpi-cost-stock-dc2', 'kpi-cost-stock-pmp', 'kpi-cost-stock-dm2'];
+  const missing = stockIds.filter(id => !data.kpis.find(k => k.id === id));
+  if (missing.length === 0) return false;
+
+  const tauxDechetIdx = data.kpis.findIndex((k: any) => k.id === 'kpi-cost-taux-dechet');
+  const insertAt = tauxDechetIdx !== -1 ? tauxDechetIdx + 1 : data.kpis.length;
+  const toInsert = missing.map(id => INITIAL_KPIS.find(k => k.id === id)).filter(Boolean) as typeof data.kpis;
+  data.kpis.splice(insertAt, 0, ...toInsert);
+  changed = true;
+
+  return changed;
+}
+
 // Retires "valeur produite" (kpi-cost-valeur-produite) and its role feeding % déchet, replacing
 // it with two directly-entered weight KPIs (poids de déchet / poids consommé) — % déchet is now
 // their ratio instead of valeur déchet / valeur produite. Idempotent: presence and position
@@ -502,6 +521,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateWasteKpis(data)) {
+        modified = true;
+      }
+
+      if (migrateStockValueKpis(data)) {
         modified = true;
       }
 

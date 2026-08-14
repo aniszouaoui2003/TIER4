@@ -380,6 +380,21 @@ function migrateStockValueKpis(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// Adds the calculated "Valeur Stock Total" KPI (DC2 + PMP + DM2) for any database that predates
+// it. Idempotent: only inserts if the ID isn't already present.
+function migrateStockTotalKpi(data: DataStoreSchema): boolean {
+  if (!data.kpis) return false;
+  if (data.kpis.find(k => k.id === 'kpi-cost-stock-total')) return false;
+
+  const seed = INITIAL_KPIS.find(k => k.id === 'kpi-cost-stock-total');
+  if (!seed) return false;
+
+  const dm2Idx = data.kpis.findIndex((k: any) => k.id === 'kpi-cost-stock-dm2');
+  const insertAt = dm2Idx !== -1 ? dm2Idx + 1 : data.kpis.length;
+  data.kpis.splice(insertAt, 0, seed);
+  return true;
+}
+
 // Retires "valeur produite" (kpi-cost-valeur-produite) and its role feeding % déchet, replacing
 // it with two directly-entered weight KPIs (poids de déchet / poids consommé) — % déchet is now
 // their ratio instead of valeur déchet / valeur produite. Idempotent: presence and position
@@ -525,6 +540,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateStockValueKpis(data)) {
+        modified = true;
+      }
+
+      if (migrateStockTotalKpi(data)) {
         modified = true;
       }
 

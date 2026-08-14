@@ -742,6 +742,28 @@ export const INITIAL_KPIS: KPI[] = [
     officeplastOwner: 'Mokded Nasri',
     history: []
   },
+  {
+    id: 'kpi-cost-stock-total',
+    category: 'Coût',
+    name: 'Valeur Stock Total',
+    unit: 'KTnd',
+    dailyValue: 0,
+    weeklyValue: 0,
+    target: 0,
+    trend: 'stable',
+    status: 'Red',
+    description: 'Valorisation financière totale du stock, calculée automatiquement (DC2 + PMP + DM2).',
+    greenThreshold: '>= 0',
+    owner: 'Directeur Compta&contrôle de gestion',
+    site1Checked: false,
+    site2Checked: false,
+    totalChecked: true,
+    officeplastOwner: 'Mokded Nasri',
+    isCalculated: true,
+    formula: 'DC2+PMP+DM2',
+    formulaInputs: { DC2: 'kpi-cost-stock-dc2', PMP: 'kpi-cost-stock-pmp', DM2: 'kpi-cost-stock-dm2' },
+    history: []
+  },
 
   // === MAINTENANCE ===
   {

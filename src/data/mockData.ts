@@ -705,7 +705,7 @@ export const INITIAL_KPIS: KPI[] = [
     history: []
   },
   {
-    id: 'kpi-cost-stock-pmp',
+    id: 'kpi-cost-stock-DMP',
     category: 'Coût',
     name: 'Valeur Stock PMP',
     unit: 'KTnd',
@@ -761,7 +761,7 @@ export const INITIAL_KPIS: KPI[] = [
     officeplastOwner: 'Mokded Nasri',
     isCalculated: true,
     formula: 'DC2+PMP+DM2',
-    formulaInputs: { DC2: 'kpi-cost-stock-dc2', PMP: 'kpi-cost-stock-pmp', DM2: 'kpi-cost-stock-dm2' },
+    formulaInputs: { DC2: 'kpi-cost-stock-dc2', PMP: 'kpi-cost-stock-DMP', DM2: 'kpi-cost-stock-dm2' },
     history: []
   },
 

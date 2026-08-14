@@ -361,13 +361,33 @@ function migrateCurrencyUnit(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// One-time rename of the stock KPI id 'kpi-cost-stock-pmp' -> 'kpi-cost-stock-DMP' (naming
+// correction), including every formula input mapping that references it by id. Idempotent: only
+// acts while the old id is still present.
+function migrateStockPmpIdRename(data: DataStoreSchema): boolean {
+  if (!data.kpis) return false;
+  const kpi = data.kpis.find((k: any) => k.id === 'kpi-cost-stock-pmp');
+  if (!kpi) return false;
+
+  (kpi as any).id = 'kpi-cost-stock-DMP';
+  data.kpis.forEach((k: any) => {
+    if (!k.formulaInputs) return;
+    Object.keys(k.formulaInputs).forEach(alias => {
+      if (k.formulaInputs[alias] === 'kpi-cost-stock-pmp') {
+        k.formulaInputs[alias] = 'kpi-cost-stock-DMP';
+      }
+    });
+  });
+  return true;
+}
+
 // Adds the three stock-value KPIs (DC2, PMP, DM2) to the Coût category for any database that
 // predates them. Idempotent: only inserts whichever of the three IDs isn't already present.
 function migrateStockValueKpis(data: DataStoreSchema): boolean {
   let changed = false;
   if (!data.kpis) return false;
 
-  const stockIds = ['kpi-cost-stock-dc2', 'kpi-cost-stock-pmp', 'kpi-cost-stock-dm2'];
+  const stockIds = ['kpi-cost-stock-dc2', 'kpi-cost-stock-DMP', 'kpi-cost-stock-dm2'];
   const missing = stockIds.filter(id => !data.kpis.find(k => k.id === id));
   if (missing.length === 0) return false;
 
@@ -536,6 +556,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateWasteKpis(data)) {
+        modified = true;
+      }
+
+      if (migrateStockPmpIdRename(data)) {
         modified = true;
       }
 

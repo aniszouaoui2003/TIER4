@@ -99,10 +99,13 @@ export function getWeeklyRowValue(kpi: KPI, rowType: RowType, week: number): num
   return found ? Number(found.value) : null;
 }
 
-// Effective monthly value for one row: a manual override wins, otherwise the average of the
-// weeks reported so far in that month. Total is derived from its sites' effective monthly values
-// via aggregateSites (so it inherits their overrides too) — except for a calculated KPI, whose
-// Total instead rolls up from the already-correctly-computed weekly Totals (see getWeeklyRowValue).
+// Effective monthly value for one row: a manual override wins, otherwise the weeks reported so
+// far in that month combined per kpi.periodAggregation — the average (default) for a rate or a
+// point-in-time level, or the sum for a flow/incident count (e.g. "nombre des accidents": the
+// month's total, not its weekly average). Total is derived from its sites' effective monthly
+// values via aggregateSites (so it inherits their overrides too) — except for a calculated KPI,
+// whose Total instead rolls up from the already-correctly-computed weekly Totals (see
+// getWeeklyRowValue).
 export function getMonthlyRowValue(kpi: KPI, rowType: RowType, monthIndex: number): number | null {
   const month = MONTH_WEEK_RANGES[monthIndex];
   const siteTracked = !!(kpi.site1Checked || kpi.site2Checked);
@@ -118,7 +121,8 @@ export function getMonthlyRowValue(kpi: KPI, rowType: RowType, monthIndex: numbe
 
   const vals = month.weeks.map(w => getWeeklyRowValue(kpi, rowType, w)).filter((v): v is number => v !== null);
   if (vals.length === 0) return null;
-  return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+  const sum = vals.reduce((a, b) => a + b, 0);
+  return Number((kpi.periodAggregation === 'sum' ? sum : sum / vals.length).toFixed(2));
 }
 
 // Merges one imported numeric cell into a working-copy accumulator, exactly like manual entry

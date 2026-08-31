@@ -84,7 +84,9 @@ export default function ModuleDetail({
   const [rangeEnd, setRangeEnd] = React.useState<number>(CURRENT_WEEK);
 
   // Card value for the selected period: the week's value, the month's aggregate, or the
-  // average across the chosen week range.
+  // sum/average across the chosen week range, per k.periodAggregation (sum for a flow/incident
+  // count like "nombre des accidents" — the period total — average for everything else, e.g. a
+  // rate or a point-in-time level).
   const getCardValue = (k: KPI): number | null => {
     if (periodMode === 'week') return getWeeklyRowValue(k, rowType, selectedWeek);
     if (periodMode === 'month') return getMonthlyRowValue(k, rowType, selectedMonthIndex);
@@ -93,7 +95,9 @@ export default function ModuleDetail({
       const v = getWeeklyRowValue(k, rowType, w);
       if (v !== null) vals.push(v);
     }
-    return vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
+    if (vals.length === 0) return null;
+    const sum = vals.reduce((a, b) => a + b, 0);
+    return Number((k.periodAggregation === 'sum' ? sum : sum / vals.length).toFixed(2));
   };
 
   // Per-KPI chart x-axis, driven by the period selector: "Semaine" shows every week of the

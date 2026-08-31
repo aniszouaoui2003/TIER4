@@ -361,6 +361,18 @@ function migrateCurrencyUnit(data: DataStoreSchema): boolean {
   return changed;
 }
 
+// "nombre des accidents" is a per-week incident count, not a rate or a point-in-time level — its
+// period total (a custom week range, a month, PTD) must be the SUM of the weeks, never their
+// average. Idempotent: only acts while the flag is still unset.
+function migrateAccidentsPeriodAggregation(data: DataStoreSchema): boolean {
+  if (!data.kpis) return false;
+  const kpi = data.kpis.find((k: any) => k.id === 'kpi-sec-accidents');
+  if (!kpi || (kpi as any).periodAggregation === 'sum') return false;
+
+  (kpi as any).periodAggregation = 'sum';
+  return true;
+}
+
 // One-time rename of the stock KPI id 'kpi-cost-stock-pmp' -> 'kpi-cost-stock-DMP' (naming
 // correction), including every formula input mapping that references it by id. Idempotent: only
 // acts while the old id is still present.
@@ -556,6 +568,10 @@ async function readDB(): Promise<DataStoreSchema> {
       }
 
       if (migrateWasteKpis(data)) {
+        modified = true;
+      }
+
+      if (migrateAccidentsPeriodAggregation(data)) {
         modified = true;
       }
 

@@ -95,6 +95,11 @@ export interface KPI {
   // How the Total row combines Site 1 + Site 2 for any KPI tracked on both — 'sum' (default when
   // absent, preserving pre-existing behavior) or 'average'.
   siteAggregation?: 'sum' | 'average';
+  // How multiple weeks combine into one period value (a custom week range, a month rollup, or
+  // Period-to-Date) — 'average' (default when absent, preserving pre-existing behavior) for a
+  // rate/percentage or point-in-time level, or 'sum' for a flow/incident count where the period
+  // total is what's meaningful (e.g. accidents *during* each week, not a level at a point in time).
+  periodAggregation?: 'sum' | 'average';
   // True for any KPI whose value is computed automatically rather than entered directly — read-
   // only in the grid. When also paired with `formula`/`formulaInputs` it's driven by the generic
   // formula engine (src/utils/formulaEngine.ts); without those two it's computed some other way

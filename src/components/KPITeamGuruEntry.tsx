@@ -237,18 +237,23 @@ export default function KPITeamGuruEntry({
     return getLiveHistoryVal(k.id, `Semaine ${week}`, field);
   };
 
-  // Monthly rollup = average of the reported weeks that fall within that month; null if none reported
-  const getMonthAggregate = (monthRange: { weeks: number[] }, getWeekVal: (w: number) => number | null): number | null => {
+  // Monthly rollup of the reported weeks that fall within that month — the average (default) for
+  // a rate or a point-in-time level, or the sum for a flow/incident count (aggregation param, per
+  // kpi.periodAggregation); null if none reported
+  const getMonthAggregate = (monthRange: { weeks: number[] }, getWeekVal: (w: number) => number | null, aggregation?: 'sum' | 'average'): number | null => {
     const vals = monthRange.weeks.map(getWeekVal).filter((v): v is number => v !== null);
     if (vals.length === 0) return null;
-    return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+    const sum = vals.reduce((a, b) => a + b, 0);
+    return Number((aggregation === 'sum' ? sum : sum / vals.length).toFixed(2));
   };
 
-  // Period-to-date = average of all reported weeks so far this year
-  const getPTD = (getWeekVal: (w: number) => number | null): number | null => {
+  // Period-to-date: the average of all reported weeks so far this year (default), or their sum
+  // for a flow/incident count (aggregation param, per kpi.periodAggregation)
+  const getPTD = (getWeekVal: (w: number) => number | null, aggregation?: 'sum' | 'average'): number | null => {
     const vals = allWeeks.map(getWeekVal).filter((v): v is number => v !== null);
     if (vals.length === 0) return null;
-    return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+    const sum = vals.reduce((a, b) => a + b, 0);
+    return Number((aggregation === 'sum' ? sum : sum / vals.length).toFixed(2));
   };
 
   // Most recent reported week strictly before `week`, or null if none
@@ -297,7 +302,7 @@ export default function KPITeamGuruEntry({
     const override = getMonthlyOverrideVal(k.id, m.name, overrideField);
     if (override !== null) return { value: override, isOverride: true };
 
-    const agg = getMonthAggregate(m, (w) => getRowWeekValue(k, rowType, w));
+    const agg = getMonthAggregate(m, (w) => getRowWeekValue(k, rowType, w), k.periodAggregation);
     return { value: agg, isOverride: false };
   };
 
@@ -589,7 +594,7 @@ export default function KPITeamGuruEntry({
   // their own grid cell, the only robust cross-browser way to freeze columns is to not scroll them.
   const renderRow = (k: KPI, rowType: RowType, liveK: KPI, isFormula: boolean, isLowerBetterRow: boolean, isModified: boolean, bothSites: boolean) => {
     const getWeekVal = (w: number) => getRowWeekValue(k, rowType, w);
-    const ptd = getPTD(getWeekVal);
+    const ptd = getPTD(getWeekVal, k.periodAggregation);
     // Total is editable only when the KPI isn't formula-derived and isn't summed from two sites
     const editable = rowType === 'total' ? !isFormula && !bothSites : !isFormula;
 

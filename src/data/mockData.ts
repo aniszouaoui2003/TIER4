@@ -79,6 +79,7 @@ export const INITIAL_KPIS: KPI[] = [
     site2Value: 0,
     site1History: [],
     site2History: [],
+    periodAggregation: 'sum',
     history: []
   },
   {

@@ -31,7 +31,10 @@ import {
   YAxis,
   Tooltip
 } from 'recharts';
-import { Meeting, KPI, Action, User } from '../types';
+import { Meeting, KPI, KPIStatus, Action, User } from '../types';
+import { CURRENT_WEEK } from '../utils/weekCalendar';
+import { getWeeklyRowValue, evaluateStatus, ALL_WEEKS } from '../utils/kpiExcelData';
+import officeplastLogo from '../../assets/officeplast-logo.png';
 
 interface MeetingManagerProps {
   meetings: Meeting[];
@@ -39,7 +42,7 @@ interface MeetingManagerProps {
   actions: Action[];
   onAddAction: (action: Omit<Action, 'id' | 'autoNum' | 'date' | 'comments' | 'attachments'>) => Promise<void>;
   onUpdateMeeting: (id: string, updated: Partial<Meeting>) => Promise<void>;
-  onCreateMeeting: (opts: { facilitator: string; scribe: string }) => Promise<void>;
+  onCreateMeeting: (opts: { facilitator: string; scribe: string; weekNumber?: number }) => Promise<void>;
   currentUser: User;
 }
 
@@ -64,7 +67,17 @@ export default function MeetingManager({
   onCreateMeeting,
   currentUser
 }: MeetingManagerProps) {
-  const currentMeeting = meetings.find(m => m.status === 'ongoing') || meetings[0];
+  // Which PV is on screen: the one picked from the selector, else the ongoing review, else the
+  // most recent one. Picking an archived PV lets it be consulted/printed like the live one.
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
+  const currentMeeting =
+    meetings.find(m => m.id === selectedMeetingId) ||
+    meetings.find(m => m.status === 'ongoing') ||
+    meetings[0];
+  const meetingWeek = currentMeeting?.weekNumber ?? CURRENT_WEEK;
+  const sortedMeetings = [...meetings].sort((a, b) => b.weekNumber - a.weekNumber || b.date.localeCompare(a.date));
+  const [newReviewWeek, setNewReviewWeek] = useState<number>(CURRENT_WEEK);
+  const [printSignature, setPrintSignature] = useState<string | null>(null);
   const [facilitator, setFacilitator] = useState(currentMeeting?.facilitator || 'Marc Lemaire (Directeur Industriel)');
   const [scribe, setScribe] = useState(currentMeeting?.scribe || 'Sophie Martin (Prod)');
 
@@ -106,6 +119,15 @@ export default function MeetingManager({
       initCanvas();
     }
   }, [currentMeeting?.activeStepIndex, currentStep?.id]);
+
+  // Switching to another PV: drop the previous one's drawn signature and AI draft
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSigned(false);
+    setAiSummary(null);
+    setAiError(null);
+  }, [currentMeeting?.id]);
 
   // Init Canvas signature pad
   const initCanvas = () => {
@@ -257,16 +279,44 @@ export default function MeetingManager({
     setIsQuickAddOpen(false);
   };
 
+  // Prints the full compte rendu (every thématique + synthèse), not just the step on screen:
+  // the report below is rendered for print only, so it exists regardless of the active step.
+  // The signature is snapshotted first — the canvas only exists on the last step.
   const triggerPrint = () => {
-    window.print();
+    const live = hasSigned && canvasRef.current ? canvasRef.current.toDataURL('image/png') : null;
+    setPrintSignature(live || currentMeeting?.signatureDataUrl || null);
+    setTimeout(() => window.print(), 100);
   };
+
+  const handleCreateReview = async (weekNumber: number) => {
+    await onCreateMeeting({ facilitator, scribe, weekNumber });
+    setSelectedMeetingId(null); // fall back to the new ongoing review
+  };
+
+  const handleArchive = async () => {
+    if (!currentMeeting || !hasSigned || !canvasRef.current) return;
+    const signatureDataUrl = canvasRef.current.toDataURL('image/png');
+    alert('Signature électronique apposée avec succès dans le compte-rendu cryptographique.');
+    await onUpdateMeeting(currentMeeting.id, { status: 'completed', signatureDataUrl });
+  };
+
+  // KPI figures are those of the meeting's own week, not the live current-week snapshot, so an
+  // earlier PV (or a review held on another week) shows the numbers that were actually discussed.
+  const kpiWeekValue = (k: KPI): number | null => getWeeklyRowValue(k, 'total', meetingWeek);
+  const kpiWeekStatus = (k: KPI): KPIStatus | null => {
+    const v = kpiWeekValue(k);
+    return v === null ? null : evaluateStatus(v, k.target, k.name, k.category);
+  };
+  const statusLabel = (st: KPIStatus | null) => st === 'Green' ? 'Vert' : st === 'Orange' ? 'Orange' : st === 'Red' ? 'Rouge' : 'N/A';
+  const trendWeeks = ALL_WEEKS.filter(w => w > meetingWeek - 5 && w <= meetingWeek);
+  const isCompleted = currentMeeting?.status === 'completed';
 
   // KPIs of current step category
   const currentStepKpis = kpis.filter(k => k.category === currentStep?.id);
   const currentStepActions = actions.filter(a => a.department === currentStep?.id && a.status !== 'Clôturé');
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-950 transition-colors duration-200 print:bg-white print:p-0">
+    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-950 transition-colors duration-200 print:bg-white print:p-0 print:overflow-visible print:h-auto print:block">
       
       {/* 1. START MEETING SCREEN (IF NO MEETING ACTIVE OR COMPLETED SELECTED) */}
       {!currentMeeting ? (
@@ -298,22 +348,34 @@ export default function MeetingManager({
                 className="w-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 rounded p-2 text-slate-800 dark:text-slate-200"
               />
             </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Semaine de la réunion</label>
+              <select
+                value={newReviewWeek}
+                onChange={(e) => setNewReviewWeek(Number(e.target.value))}
+                className="w-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 rounded p-2 text-slate-800 dark:text-slate-200"
+              >
+                {ALL_WEEKS.map(w => (
+                  <option key={w} value={w}>Semaine {w}{w === CURRENT_WEEK ? ' (actuelle)' : ''}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <button
-            onClick={() => onCreateMeeting({ facilitator, scribe })}
+            onClick={() => handleCreateReview(newReviewWeek)}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
           >
             <Play className="w-4 h-4 fill-white" /> Démarrer la Revue Hebdomadaire
           </button>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-6 print:hidden">
           {/* Active Meeting Dashboard */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5 print:border-none print:pb-0">
             <div>
               <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-widest font-mono">
-                Revue en cours • Semaine {currentMeeting.weekNumber}
+                {isCompleted ? 'PV archivé' : 'Revue en cours'} • Semaine {currentMeeting.weekNumber}
               </p>
               <h2 className="text-2xl font-sans font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
                 Réunion Directeur Générale Tier 4
@@ -326,7 +388,33 @@ export default function MeetingManager({
               </p>
             </div>
 
-            <div className="flex items-center gap-2 self-start md:self-center print:hidden">
+            <div className="flex flex-wrap items-center gap-2 self-start md:self-center print:hidden">
+              {/* Previous PV picker: every review ever held, newest week first */}
+              <select
+                value={currentMeeting.id}
+                onChange={(e) => setSelectedMeetingId(e.target.value)}
+                title="Consulter un PV de réunion"
+                className="text-xs font-semibold px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg shadow-xs focus:outline-none"
+              >
+                {sortedMeetings.map(m => (
+                  <option key={m.id} value={m.id}>
+                    PV S{m.weekNumber} — {m.date.split('-').reverse().join('/')} — {m.status === 'completed' ? 'Clôturé' : 'En cours'}
+                  </option>
+                ))}
+              </select>
+
+              {/* Week this review is about: drives every KPI figure shown below */}
+              <select
+                value={currentMeeting.weekNumber}
+                onChange={(e) => onUpdateMeeting(currentMeeting.id, { weekNumber: Number(e.target.value) })}
+                title="Semaine de la réunion"
+                className="text-xs font-semibold px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg shadow-xs focus:outline-none"
+              >
+                {ALL_WEEKS.map(w => (
+                  <option key={w} value={w}>Semaine {w}{w === CURRENT_WEEK ? ' (actuelle)' : ''}</option>
+                ))}
+              </select>
+
               <button
                 onClick={triggerPrint}
                 className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-xs"
@@ -335,7 +423,8 @@ export default function MeetingManager({
               </button>
               
               <button
-                onClick={() => onCreateMeeting({ facilitator, scribe })}
+                onClick={() => handleCreateReview(CURRENT_WEEK)}
+                title={'Nouvelle revue pour la semaine actuelle (S' + CURRENT_WEEK + ')'}
                 className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-xs"
               >
                 <PlusCircle className="w-3.5 h-3.5" /> Nouvelle Revue
@@ -386,7 +475,10 @@ export default function MeetingManager({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {currentStepKpis.map(k => (
+                    {currentStepKpis.map(k => {
+                      const weekValue = kpiWeekValue(k);
+                      const weekStatus = kpiWeekStatus(k);
+                      return (
                       <div key={k.id} className="p-3.5 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-slate-100 dark:border-slate-800 flex justify-between items-center">
                         <div className="space-y-0.5 min-w-0">
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">KPI Hebdo / Target</p>
@@ -395,30 +487,31 @@ export default function MeetingManager({
                         </div>
                         <div className="text-right shrink-0">
                           <p className={`text-xl font-sans font-extrabold ${
-                            k.status === 'Green' ? 'text-emerald-600' : k.status === 'Orange' ? 'text-amber-500' : 'text-rose-600'
+                            weekStatus === 'Green' ? 'text-emerald-600' : weekStatus === 'Orange' ? 'text-amber-500' : weekStatus === 'Red' ? 'text-rose-600' : 'text-slate-400'
                           }`}>
-                            {k.weeklyValue} <span className="text-[10px] font-normal uppercase text-slate-400">{k.unit}</span>
+                            {weekValue ?? '—'} <span className="text-[10px] font-normal uppercase text-slate-400">{k.unit}</span>
                           </p>
                           <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
-                            k.status === 'Green' ? 'bg-emerald-100 text-emerald-800' : k.status === 'Orange' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                            weekStatus === 'Green' ? 'bg-emerald-100 text-emerald-800' : weekStatus === 'Orange' ? 'bg-amber-100 text-amber-800' : weekStatus === 'Red' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-500'
                           }`}>
-                            {k.status}
+                            {weekStatus ?? 'N/A'}
                           </span>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Sparkline trend for main KPI */}
                   {currentStepKpis[0] && (
                     <div className="pt-3 border-t border-slate-100 dark:border-slate-800 h-[140px]">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-2">Historique d'Évolution (5 Semaines) - {currentStepKpis[0].name}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-2">Historique d'Évolution (5 Semaines jusqu'à S{meetingWeek}) - {currentStepKpis[0].name}</span>
                       <ResponsiveContainer width="100%" height="80%">
-                        <LineChart data={currentStepKpis[0].history}>
+                        <LineChart data={trendWeeks.map(w => ({ date: 'S' + w, value: getWeeklyRowValue(currentStepKpis[0], 'total', w) }))}>
                           <XAxis dataKey="date" stroke="#94a3b8" fontSize={9} tickLine={false} />
                           <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
                           <Tooltip />
-                          <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                          <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -645,7 +738,10 @@ export default function MeetingManager({
                       onMouseLeave={stopSigning}
                       className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
                     />
-                    {!hasSigned && (
+                    {currentMeeting.signatureDataUrl && !hasSigned && (
+                      <img src={currentMeeting.signatureDataUrl} alt="Signature enregistrée" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
+                    )}
+                    {!hasSigned && !currentMeeting.signatureDataUrl && (
                       <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-[11px] pointer-events-none select-none font-mono">
                         Signer ici • Animateur
                       </div>
@@ -654,18 +750,17 @@ export default function MeetingManager({
 
                   <div className="flex justify-between items-center text-xs pt-1">
                     <button
-                      onClick={clearSignature}
+                      onClick={() => {
+                        clearSignature();
+                        if (currentMeeting.signatureDataUrl) onUpdateMeeting(currentMeeting.id, { signatureDataUrl: '' });
+                      }}
                       className="text-slate-400 hover:text-rose-500 font-bold underline"
                     >
                       Effacer la signature
                     </button>
                     
                     <button
-                      onClick={() => {
-                        if (!hasSigned) return;
-                        alert('Signature électronique apposée avec succès dans le compte-rendu cryptographique.');
-                        onUpdateMeeting(currentMeeting.id, { status: 'completed' });
-                      }}
+                      onClick={handleArchive}
                       disabled={!hasSigned}
                       className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 text-white font-bold rounded-lg transition-all"
                     >
@@ -787,6 +882,133 @@ export default function MeetingManager({
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* PRINT-ONLY COMPTE RENDU: the whole review (every thématique + synthèse + signature),
+          independent of the step currently on screen. */}
+      {currentMeeting && (
+        <div className="hidden print:block print-report bg-white text-slate-900 text-[11px] leading-relaxed">
+          <div className="flex items-center justify-between border-b-2 border-slate-800 pb-3 mb-4">
+            <div className="flex items-center gap-3">
+              <img src={officeplastLogo} alt="OfficePlast" className="w-12 h-12 object-contain" />
+              <div>
+                <h1 className="text-lg font-bold uppercase tracking-wide">Compte rendu — Réunion Tier 4</h1>
+                <p className="text-xs text-slate-600">
+                  Semaine {meetingWeek} • Réunion du {currentMeeting.date.split('-').reverse().join('/')} • {isCompleted ? 'PV clôturé' : 'Revue en cours'}
+                </p>
+              </div>
+            </div>
+            <div className="text-right text-xs text-slate-600">
+              <p>Animateur : <strong>{currentMeeting.facilitator}</strong></p>
+              <p>Secrétaire : <strong>{currentMeeting.scribe}</strong></p>
+            </div>
+          </div>
+
+          {agendaSteps.filter(step => step.id !== 'Clôture').map(step => {
+            const stepKpis = kpis.filter(k => k.category === step.id);
+            const stepActions = actions.filter(a => a.department === step.id && a.status !== 'Clôturé');
+            return (
+              <section key={step.id} className="mb-5 break-inside-avoid">
+                <h2 className="flex items-center gap-2 text-sm font-bold uppercase border-b border-slate-300 pb-1 mb-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${step.color}`}></span>
+                  {step.label}
+                </h2>
+
+                {stepKpis.length === 0 ? (
+                  <p className="italic text-slate-500 mb-2">Aucun indicateur pour cette thématique.</p>
+                ) : (
+                  <table className="w-full border-collapse text-[10px] mb-2">
+                    <thead>
+                      <tr className="bg-slate-100 text-left">
+                        <th className="border border-slate-300 px-1.5 py-1">Indicateur</th>
+                        <th className="border border-slate-300 px-1.5 py-1 w-24">Cible</th>
+                        <th className="border border-slate-300 px-1.5 py-1 w-24">S{meetingWeek}</th>
+                        <th className="border border-slate-300 px-1.5 py-1 w-16">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stepKpis.map(k => {
+                        const v = kpiWeekValue(k);
+                        const st = kpiWeekStatus(k);
+                        return (
+                          <tr key={k.id}>
+                            <td className="border border-slate-300 px-1.5 py-1">{k.name}</td>
+                            <td className="border border-slate-300 px-1.5 py-1">{k.target} {k.unit}</td>
+                            <td className="border border-slate-300 px-1.5 py-1 font-bold">{v ?? '—'} {v !== null ? k.unit : ''}</td>
+                            <td className={`border border-slate-300 px-1.5 py-1 font-bold ${
+                              st === 'Green' ? 'text-emerald-700' : st === 'Orange' ? 'text-amber-600' : st === 'Red' ? 'text-rose-700' : 'text-slate-400'
+                            }`}>{statusLabel(st)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-0.5">Commentaires de séance</h3>
+                    <p className="whitespace-pre-wrap">{currentMeeting.stepComments[step.id]?.trim() || '—'}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-0.5">Décisions & arbitrages</h3>
+                    <p className="whitespace-pre-wrap">{currentMeeting.stepDecisions[step.id]?.trim() || '—'}</p>
+                  </div>
+                </div>
+
+                {stepActions.length > 0 && (
+                  <div>
+                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-0.5">Actions ouvertes ({stepActions.length})</h3>
+                    <ul className="list-disc pl-4">
+                      {stepActions.map(a => (
+                        <li key={a.id}>
+                          {a.subject} — {a.owner} • échéance {a.dueDate} • {a.completionPercentage}%
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </section>
+            );
+          })}
+
+          <section className="mt-6 break-inside-avoid">
+            <h2 className="text-sm font-bold uppercase border-b border-slate-300 pb-1 mb-2">Synthèse & signature</h2>
+
+            <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-0.5">Participants</h3>
+            <p className="mb-3">
+              {currentMeeting.attendees.map((att, i) => (
+                <span key={i} className="mr-3 whitespace-nowrap">
+                  {att.present ? '☑' : '☐'} {att.name} <span className="text-slate-500">({att.role})</span>
+                </span>
+              ))}
+            </p>
+
+            {aiSummary && (
+              <div className="mb-3">
+                <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-0.5">Synthèse de séance</h3>
+                <p className="italic mb-1">{aiSummary.bulletinClimat}</p>
+                {aiSummary.pointsCles?.length > 0 && (
+                  <ul className="list-disc pl-4">
+                    {aiSummary.pointsCles.map((pt, i) => <li key={i}>{pt}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 w-64">
+              <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Signature de l'animateur</p>
+              <div className="border border-slate-400 h-20 flex items-center justify-center">
+                {printSignature ? (
+                  <img src={printSignature} alt="Signature" className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <span className="text-slate-400 italic">Non signé</span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">{currentMeeting.facilitator}</p>
+            </div>
+          </section>
         </div>
       )}
 

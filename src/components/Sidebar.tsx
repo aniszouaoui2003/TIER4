@@ -108,7 +108,7 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="w-68 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen shrink-0 transition-colors duration-200">
+    <aside className="w-68 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen shrink-0 transition-colors duration-200 print:hidden">
       {/* Header */}
       <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
         <img src={officeplastLogo} alt="OfficePlast" className="w-9 h-9 object-contain shrink-0" id="sidebar-logo-icon" />

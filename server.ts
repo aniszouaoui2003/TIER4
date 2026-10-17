@@ -1150,7 +1150,10 @@ app.post('/api/meetings', async (req, res) => {
     }
   });
 
-  const nextWeek = Math.max(...db.meetings.map(m => m.weekNumber), 26) + 1;
+  // The week is chosen by the user (any week 1-52, e.g. to record a review after the fact);
+  // defaults to the current ISO week rather than a counter that drifts from the real calendar.
+  const requestedWeek = Number(req.body.weekNumber);
+  const nextWeek = Number.isInteger(requestedWeek) && requestedWeek >= 1 && requestedWeek <= 52 ? requestedWeek : CURRENT_WEEK;
   const newMeeting = {
     id: `meet-${Date.now()}`,
     date: new Date().toISOString().split('T')[0],

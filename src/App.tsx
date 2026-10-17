@@ -221,7 +221,7 @@ export default function App() {
   };
 
   // 5. CREATE AND INITIALIZE A NEW MEETING WEEK REVIEW
-  const handleCreateMeeting = async (opts: { facilitator: string; scribe: string }) => {
+  const handleCreateMeeting = async (opts: { facilitator: string; scribe: string; weekNumber?: number }) => {
     if (!currentUser) return;
     try {
       const response = await fetch('/api/meetings', {
@@ -230,6 +230,7 @@ export default function App() {
         body: JSON.stringify({
           facilitator: opts.facilitator,
           scribe: opts.scribe,
+          weekNumber: opts.weekNumber,
           createdBy: currentUser.name,
           createdByRole: currentUser.role
         })
@@ -540,7 +541,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex bg-slate-50 dark:bg-slate-950 overflow-hidden text-slate-800 dark:text-slate-100 font-sans">
+    <div className="h-screen w-screen flex bg-slate-50 dark:bg-slate-950 overflow-hidden text-slate-800 dark:text-slate-100 font-sans print:h-auto print:w-auto print:block print:overflow-visible print:bg-white">
       
       {/* SIDEBAR NAVIGATION PANEL */}
       {currentUser && (
@@ -559,7 +560,7 @@ export default function App() {
 
       {/* CORE WORKSPACE VIEW CONTROLLER */}
       {currentUser && sqlConfig && (
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:block print:overflow-visible">
           
           {activeTab === 'dashboard' && (
             <DashboardMain

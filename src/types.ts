@@ -169,6 +169,9 @@ export interface Meeting {
   stepDecisions: Record<string, string>; // key is category
   generalDecisions: string[];
   reportPdfUrl?: string;
+  // Animateur's drawn signature (PNG data URL), saved when the review is archived so the printed
+  // compte rendu — including for a previous PV — carries it.
+  signatureDataUrl?: string;
 }
 
 export interface SQLServerConfig {

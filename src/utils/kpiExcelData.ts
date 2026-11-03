@@ -25,6 +25,7 @@ const isLowerBetterMetric = (kpiName: string, category: string): boolean => {
     name.includes('retard') ||
     name.includes('accident') ||
     name.includes('panne') ||
+    name.includes('curatif') ||
     name.includes('absentéisme') ||
     name.includes('déchet') ||
     name.includes('consommation') ||

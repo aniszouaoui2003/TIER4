@@ -91,6 +91,7 @@ function evaluateKPIStatus(value: number, target: number, name: string, category
     lowerName.includes('retard') ||
     lowerName.includes('accident') ||
     lowerName.includes('panne') ||
+    lowerName.includes('curatif') ||
     lowerName.includes('absentéisme') ||
     lowerName.includes('déchet') ||
     lowerName.includes('consommation') ||
